@@ -4,10 +4,10 @@ use std::simd::{ u32x16, u32x8 };
 use num_traits::Zero;
 
 use super::m31::{ PackedBaseField, LOG_N_LANES, N_LANES };
-use super::SimdBackend;
-use crate::core::backend::simd::fft::compute_first_twiddles;
-use crate::core::backend::simd::fft::ifft::simd_ibutterfly;
-use crate::core::backend::simd::qm31::PackedSecureField;
+use super::MetalBackend;
+use crate::core::backend::metal::fft::compute_first_twiddles;
+use crate::core::backend::metal::fft::ifft::simd_ibutterfly;
+use crate::core::backend::metal::qm31::PackedSecureField;
 use crate::core::backend::Column;
 use crate::core::fields::m31::BaseField;
 use crate::core::fields::qm31::SecureField;
@@ -20,7 +20,7 @@ use crate::core::poly::utils::domain_line_twiddles_from_tree;
 use crate::core::poly::BitReversedOrder;
 
 // TODO(andrew) Is this optimized?
-impl FriOps for SimdBackend {
+impl FriOps for MetalBackend {
     fn fold_line(
         eval: &LineEvaluation<Self>,
         alpha: SecureField,
@@ -73,7 +73,7 @@ impl FriOps for SimdBackend {
             fold_circle_into_line(&mut cpu_dst, &src.to_cpu(), alpha);
             *dst = LineEvaluation::new(
                 cpu_dst.domain(),
-                SecureColumnByCoords::<SimdBackend>::from_cpu(cpu_dst.values)
+                SecureColumnByCoords::<MetalBackend>::from_cpu(cpu_dst.values)
             );
             return;
         }
@@ -140,7 +140,7 @@ impl FriOps for SimdBackend {
 ///
 /// [`decomposition_coefficient`]: crate::core::backend::cpu::CpuBackend::decomposition_coefficient
 fn decomposition_coefficient(
-    eval: &SecureEvaluation<SimdBackend, BitReversedOrder>
+    eval: &SecureEvaluation<MetalBackend, BitReversedOrder>
 ) -> SecureField {
     let cols = &eval.values.columns;
     let [mut x_sum, mut y_sum, mut z_sum, mut w_sum] = [PackedBaseField::zero(); 4];
@@ -176,8 +176,8 @@ mod tests {
     use rand::rngs::SmallRng;
     use rand::{ Rng, SeedableRng };
 
-    use crate::core::backend::simd::column::BaseColumn;
-    use crate::core::backend::simd::SimdBackend;
+    use crate::core::backend::metal::column::BaseColumn;
+    use crate::core::backend::metal::MetalBackend;
     use crate::core::backend::{ Column, CpuBackend };
     use crate::core::fields::m31::BaseField;
     use crate::core::fields::qm31::SecureField;
@@ -201,10 +201,10 @@ mod tests {
             &CpuBackend::precompute_twiddles(domain.coset())
         );
 
-        let avx_fold = SimdBackend::fold_line(
+        let avx_fold = MetalBackend::fold_line(
             &LineEvaluation::new(domain, values.iter().copied().collect()),
             alpha,
-            &SimdBackend::precompute_twiddles(domain.coset())
+            &MetalBackend::precompute_twiddles(domain.coset())
         );
 
         assert_eq!(cpu_fold.values.to_vec(), avx_fold.values.to_vec());
@@ -234,11 +234,11 @@ mod tests {
             line_domain,
             SecureColumnByCoords::zeros(1 << (LOG_SIZE - 1))
         );
-        SimdBackend::fold_circle_into_line(
+        MetalBackend::fold_circle_into_line(
             &mut simd_fold,
             &SecureEvaluation::new(circle_domain, values.iter().copied().collect()),
             alpha,
-            &SimdBackend::precompute_twiddles(line_domain.coset())
+            &MetalBackend::precompute_twiddles(line_domain.coset())
         );
 
         assert_eq!(cpu_fold.values.to_vec(), simd_fold.values.to_vec());
@@ -253,9 +253,9 @@ mod tests {
         let mut coeffs = BaseColumn::zeros(1 << DOMAIN_LOG_SIZE);
         // Polynomial is out of FFT space.
         coeffs.as_mut_slice()[1 << DOMAIN_LOG_HALF_SIZE] = BaseField::one();
-        let poly = CirclePoly::<SimdBackend>::new(coeffs);
+        let poly = CirclePoly::<MetalBackend>::new(coeffs);
         let values = poly.evaluate(domain);
-        let avx_column = SecureColumnByCoords::<SimdBackend> {
+        let avx_column = SecureColumnByCoords::<MetalBackend> {
             columns: [
                 values.values.clone(),
                 values.values.clone(),
@@ -269,7 +269,7 @@ mod tests {
             avx_eval.values.to_cpu()
         );
         let (cpu_g, cpu_lambda) = CpuBackend::decompose(&cpu_eval);
-        let (avx_g, avx_lambda) = SimdBackend::decompose(&avx_eval);
+        let (avx_g, avx_lambda) = MetalBackend::decompose(&avx_eval);
 
         assert_eq!(avx_lambda, cpu_lambda);
         for i in 0..1 << DOMAIN_LOG_SIZE {

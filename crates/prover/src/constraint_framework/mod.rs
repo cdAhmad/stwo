@@ -9,6 +9,7 @@ mod point;
 pub mod preprocessed_columns;
 pub mod relation_tracker;
 mod simd_domain;
+mod metal_domain;
 
 use std::array;
 use std::fmt::Debug;

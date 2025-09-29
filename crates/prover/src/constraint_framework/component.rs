@@ -1,34 +1,39 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::fmt::{self, Display, Formatter};
+use std::fmt::{ self, Display, Formatter };
 use std::iter::zip;
 use std::ops::Deref;
 
 use itertools::Itertools;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
-use tracing::{span, Level};
+use tracing::{ span, Level };
 
 use super::cpu_domain::CpuDomainEvaluator;
 use super::preprocessed_columns::PreProcessedColumnId;
 use super::{
-    EvalAtRow, InfoEvaluator, PointEvaluator, SimdDomainEvaluator, PREPROCESSED_TRACE_IDX,
+    EvalAtRow,
+    InfoEvaluator,
+    PointEvaluator,
+    SimdDomainEvaluator,
+    PREPROCESSED_TRACE_IDX,
 };
-use crate::core::air::accumulation::{DomainEvaluationAccumulator, PointEvaluationAccumulator};
-use crate::core::air::{Component, ComponentProver, Trace};
+use crate::constraint_framework::metal_domain::MetalDomainEvaluator;
+use crate::core::air::accumulation::{ DomainEvaluationAccumulator, PointEvaluationAccumulator };
+use crate::core::air::{ Component, ComponentProver, Trace };
 use crate::core::backend::cpu::bit_reverse;
-use crate::core::backend::simd::column::VeryPackedSecureColumnByCoords;
-use crate::core::backend::simd::m31::LOG_N_LANES;
-use crate::core::backend::simd::very_packed_m31::{VeryPackedBaseField, LOG_N_VERY_PACKED_ELEMS};
+use crate::core::backend::metal::MetalBackend;
+use crate::core::backend::metal;
 use crate::core::backend::simd::SimdBackend;
+use crate::core::backend::simd;
 use crate::core::circle::CirclePoint;
 use crate::core::constraints::coset_vanishing;
 use crate::core::fields::m31::BaseField;
 use crate::core::fields::qm31::SecureField;
 use crate::core::fields::secure_column::SecureColumnByCoords;
 use crate::core::fields::FieldExpOps;
-use crate::core::pcs::{TreeSubspan, TreeVec};
-use crate::core::poly::circle::{CanonicCoset, CircleEvaluation, PolyOps};
+use crate::core::pcs::{ TreeSubspan, TreeVec };
+use crate::core::poly::circle::{ CanonicCoset, CircleEvaluation, PolyOps };
 use crate::core::poly::BitReversedOrder;
 use crate::core::ColumnVec;
 
@@ -56,7 +61,7 @@ pub struct TraceLocationAllocator {
 impl TraceLocationAllocator {
     pub fn next_for_structure<T>(
         &mut self,
-        structure: &TreeVec<ColumnVec<T>>,
+        structure: &TreeVec<ColumnVec<T>>
     ) -> TreeVec<TreeSubspan> {
         if structure.len() > self.next_tree_offsets.len() {
             self.next_tree_offsets.resize(structure.len(), 0);
@@ -75,7 +80,7 @@ impl TraceLocationAllocator {
                         col_end,
                     }
                 })
-                .collect(),
+                .collect()
         )
     }
 
@@ -103,10 +108,7 @@ impl TraceLocationAllocator {
         let mut input_columns = preprocessed_columns.to_vec();
         self_columns.sort_by_key(|col| col.id.clone());
         input_columns.sort_by_key(|col| col.id.clone());
-        assert_eq!(
-            self_columns, input_columns,
-            "Preprocessed columns are not a permutation."
-        );
+        assert_eq!(self_columns, input_columns, "Preprocessed columns are not a permutation.");
     }
 }
 
@@ -135,31 +137,29 @@ impl<E: FrameworkEval> FrameworkComponent<E> {
     pub fn new(
         location_allocator: &mut TraceLocationAllocator,
         eval: E,
-        claimed_sum: SecureField,
+        claimed_sum: SecureField
     ) -> Self {
         let info = eval.evaluate(InfoEvaluator::new(eval.log_size(), vec![], claimed_sum));
         let trace_locations = location_allocator.next_for_structure(&info.mask_offsets);
 
-        let preprocessed_column_indices = info
-            .preprocessed_columns
+        let preprocessed_column_indices = info.preprocessed_columns
             .iter()
             .map(|col| {
                 let next_column = location_allocator.preprocessed_columns.len();
-                if let Some(pos) = location_allocator
-                    .preprocessed_columns
-                    .iter()
-                    .position(|x| x.id == col.id)
+                if
+                    let Some(pos) = location_allocator.preprocessed_columns
+                        .iter()
+                        .position(|x| x.id == col.id)
                 {
                     pos
                 } else {
-                    if matches!(
-                        location_allocator.preprocessed_columns_allocation_mode,
-                        PreprocessedColumnsAllocationMode::Static
-                    ) {
-                        panic!(
-                            "Preprocessed column {:?} is missing from static allocation",
-                            col
-                        );
+                    if
+                        matches!(
+                            location_allocator.preprocessed_columns_allocation_mode,
+                            PreprocessedColumnsAllocationMode::Static
+                        )
+                    {
+                        panic!("Preprocessed column {:?} is missing from static allocation", col);
                     }
                     location_allocator.preprocessed_columns.push(col.clone());
                     next_column
@@ -190,11 +190,10 @@ impl<E: FrameworkEval> FrameworkComponent<E> {
     pub fn logup_counts(&self) -> RelationCounts {
         let size = 1 << self.eval.log_size();
         RelationCounts(
-            self.info
-                .logup_counts
+            self.info.logup_counts
                 .iter()
                 .map(|(k, v)| (k.clone(), v * size))
-                .collect(),
+                .collect()
         )
     }
 }
@@ -218,14 +217,11 @@ impl<E: FrameworkEval> Component for FrameworkComponent<E> {
     }
 
     fn trace_log_degree_bounds(&self) -> TreeVec<ColumnVec<u32>> {
-        let mut log_degree_bounds = self
-            .info
-            .mask_offsets
+        let mut log_degree_bounds = self.info.mask_offsets
             .as_ref()
             .map(|tree_offsets| vec![self.eval.log_size(); tree_offsets.len()]);
 
-        log_degree_bounds[0] = self
-            .preprocessed_column_indices
+        log_degree_bounds[0] = self.preprocessed_column_indices
             .iter()
             .map(|_| self.eval.log_size())
             .collect();
@@ -235,7 +231,7 @@ impl<E: FrameworkEval> Component for FrameworkComponent<E> {
 
     fn mask_points(
         &self,
-        point: CirclePoint<SecureField>,
+        point: CirclePoint<SecureField>
     ) -> TreeVec<ColumnVec<Vec<CirclePoint<SecureField>>>> {
         let trace_step = CanonicCoset::new(self.eval.log_size()).step();
         self.info.mask_offsets.as_ref().map_cols(|col_offsets| {
@@ -254,10 +250,9 @@ impl<E: FrameworkEval> Component for FrameworkComponent<E> {
         &self,
         point: CirclePoint<SecureField>,
         mask: &TreeVec<ColumnVec<Vec<SecureField>>>,
-        evaluation_accumulator: &mut PointEvaluationAccumulator,
+        evaluation_accumulator: &mut PointEvaluationAccumulator
     ) {
-        let preprocessed_mask = self
-            .preprocessed_column_indices
+        let preprocessed_mask = self.preprocessed_column_indices
             .iter()
             .map(|idx| &mask[PREPROCESSED_TRACE_IDX][*idx])
             .collect_vec();
@@ -265,13 +260,15 @@ impl<E: FrameworkEval> Component for FrameworkComponent<E> {
         let mut mask_points = mask.sub_tree(&self.trace_locations);
         mask_points[PREPROCESSED_TRACE_IDX] = preprocessed_mask;
 
-        self.eval.evaluate(PointEvaluator::new(
-            mask_points,
-            evaluation_accumulator,
-            coset_vanishing(CanonicCoset::new(self.eval.log_size()).coset, point).inverse(),
-            self.eval.log_size(),
-            self.claimed_sum,
-        ));
+        self.eval.evaluate(
+            PointEvaluator::new(
+                mask_points,
+                evaluation_accumulator,
+                coset_vanishing(CanonicCoset::new(self.eval.log_size()).coset, point).inverse(),
+                self.eval.log_size(),
+                self.claimed_sum
+            )
+        );
     }
 }
 
@@ -279,7 +276,7 @@ impl<E: FrameworkEval + Sync> ComponentProver<SimdBackend> for FrameworkComponen
     fn evaluate_constraint_quotients_on_domain(
         &self,
         trace: &Trace<'_, SimdBackend>,
-        evaluation_accumulator: &mut DomainEvaluationAccumulator<SimdBackend>,
+        evaluation_accumulator: &mut DomainEvaluationAccumulator<SimdBackend>
     ) {
         if self.n_constraints() == 0 {
             return;
@@ -289,15 +286,13 @@ impl<E: FrameworkEval + Sync> ComponentProver<SimdBackend> for FrameworkComponen
         let trace_domain = CanonicCoset::new(self.eval.log_size());
 
         let mut component_polys = trace.polys.sub_tree(&self.trace_locations);
-        component_polys[PREPROCESSED_TRACE_IDX] = self
-            .preprocessed_column_indices
+        component_polys[PREPROCESSED_TRACE_IDX] = self.preprocessed_column_indices
             .iter()
             .map(|idx| &trace.polys[PREPROCESSED_TRACE_IDX][*idx])
             .collect();
 
         let mut component_evals = trace.evals.sub_tree(&self.trace_locations);
-        component_evals[PREPROCESSED_TRACE_IDX] = self
-            .preprocessed_column_indices
+        component_evals[PREPROCESSED_TRACE_IDX] = self.preprocessed_column_indices
             .iter()
             .map(|idx| &trace.evals[PREPROCESSED_TRACE_IDX][*idx])
             .collect();
@@ -310,7 +305,7 @@ impl<E: FrameworkEval + Sync> ComponentProver<SimdBackend> for FrameworkComponen
             .flatten()
             .any(|c| c.domain != eval_domain);
         let trace: TreeVec<
-            Vec<Cow<'_, CircleEvaluation<SimdBackend, BaseField, BitReversedOrder>>>,
+            Vec<Cow<'_, CircleEvaluation<SimdBackend, BaseField, BitReversedOrder>>>
         > = if need_to_extend {
             let _span = span!(Level::INFO, "Extension").entered();
             let twiddles = SimdBackend::precompute_twiddles(eval_domain.half_coset);
@@ -329,17 +324,21 @@ impl<E: FrameworkEval + Sync> ComponentProver<SimdBackend> for FrameworkComponen
         bit_reverse(&mut denom_inv);
 
         // Accumulator.
-        let [mut accum] =
-            evaluation_accumulator.columns([(eval_domain.log_size(), self.n_constraints())]);
+        let [mut accum] = evaluation_accumulator.columns([
+            (eval_domain.log_size(), self.n_constraints()),
+        ]);
         accum.random_coeff_powers.reverse();
 
         let _span = span!(Level::INFO, "Constraint point-wise eval").entered();
 
-        if trace_domain.log_size() < LOG_N_LANES + LOG_N_VERY_PACKED_ELEMS {
+        if
+            trace_domain.log_size() <
+            simd::m31::LOG_N_LANES + simd::very_packed_m31::LOG_N_VERY_PACKED_ELEMS
+        {
             // Fall back to CPU if the trace is too small.
             let mut col = accum.col.to_cpu();
 
-            for row in 0..(1 << eval_domain.log_size()) {
+            for row in 0..1 << eval_domain.log_size() {
                 let trace_cols = trace.as_cols_ref().map_cols(|c| c.to_cpu());
                 let trace_cols = trace_cols.as_cols_ref();
 
@@ -351,31 +350,33 @@ impl<E: FrameworkEval + Sync> ComponentProver<SimdBackend> for FrameworkComponen
                     trace_domain.log_size(),
                     eval_domain.log_size(),
                     self.eval.log_size(),
-                    self.claimed_sum,
+                    self.claimed_sum
                 );
                 let row_res = self.eval.evaluate(eval).row_res;
 
                 // Finalize row.
                 let denom_inv = denom_inv[row >> trace_domain.log_size()];
-                col.set(row, col.at(row) + row_res * denom_inv)
+                col.set(row, col.at(row) + row_res * denom_inv);
             }
-            let col = SecureColumnByCoords::from_cpu(col);
+            let col = SecureColumnByCoords::<SimdBackend>::from_cpu(col);
             *accum.col = col;
             return;
         }
 
-        let col = unsafe { VeryPackedSecureColumnByCoords::transform_under_mut(accum.col) };
+        let col = unsafe {
+            simd::column::VeryPackedSecureColumnByCoords::transform_under_mut(accum.col)
+        };
 
-        let range = 0..(1 << (eval_domain.log_size() - LOG_N_LANES - LOG_N_VERY_PACKED_ELEMS));
+        let range = 0..1 <<
+            (eval_domain.log_size() -
+                simd::m31::LOG_N_LANES -
+                simd::very_packed_m31::LOG_N_VERY_PACKED_ELEMS);
 
         #[cfg(not(feature = "parallel"))]
         let iter = range.step_by(CHUNK_SIZE).zip(col.chunks_mut(CHUNK_SIZE));
 
         #[cfg(feature = "parallel")]
-        let iter = range
-            .into_par_iter()
-            .step_by(CHUNK_SIZE)
-            .zip(col.chunks_mut(CHUNK_SIZE));
+        let iter = range.into_par_iter().step_by(CHUNK_SIZE).zip(col.chunks_mut(CHUNK_SIZE));
 
         // Define any `self` values outside the loop to prevent the compiler thinking there is a
         // `Sync` requirement on `Self`.
@@ -395,20 +396,178 @@ impl<E: FrameworkEval + Sync> ComponentProver<SimdBackend> for FrameworkComponen
                     trace_domain.log_size(),
                     eval_domain.log_size(),
                     self_eval.log_size(),
-                    self_claimed_sum,
+                    self_claimed_sum
                 );
                 let row_res = self_eval.evaluate(eval).row_res;
 
                 // Finalize row.
                 unsafe {
-                    let denom_inv = VeryPackedBaseField::broadcast(
-                        denom_inv[vec_row
-                            >> (trace_domain.log_size() - LOG_N_LANES - LOG_N_VERY_PACKED_ELEMS)],
+                    let denom_inv = simd::very_packed_m31::VeryPackedBaseField::broadcast(
+                        denom_inv
+                            [
+
+                                    vec_row >>
+                                    (trace_domain.log_size() -
+                                        simd::m31::LOG_N_LANES -
+                                        simd::very_packed_m31::LOG_N_VERY_PACKED_ELEMS)
+
+                            ]
                     );
                     chunk.set_packed(
                         idx_in_chunk,
-                        chunk.packed_at(idx_in_chunk) + row_res * denom_inv,
-                    )
+                        chunk.packed_at(idx_in_chunk) + row_res * denom_inv
+                    );
+                }
+            }
+        });
+    }
+}
+
+impl<E: FrameworkEval + Sync> ComponentProver<MetalBackend> for FrameworkComponent<E> {
+    fn evaluate_constraint_quotients_on_domain(
+        &self,
+        trace: &Trace<'_, MetalBackend>,
+        evaluation_accumulator: &mut DomainEvaluationAccumulator<MetalBackend>
+    ) {
+        if self.n_constraints() == 0 {
+            return;
+        }
+
+        let eval_domain = CanonicCoset::new(self.max_constraint_log_degree_bound()).circle_domain();
+        let trace_domain = CanonicCoset::new(self.eval.log_size());
+
+        let mut component_polys = trace.polys.sub_tree(&self.trace_locations);
+        component_polys[PREPROCESSED_TRACE_IDX] = self.preprocessed_column_indices
+            .iter()
+            .map(|idx| &trace.polys[PREPROCESSED_TRACE_IDX][*idx])
+            .collect();
+
+        let mut component_evals = trace.evals.sub_tree(&self.trace_locations);
+        component_evals[PREPROCESSED_TRACE_IDX] = self.preprocessed_column_indices
+            .iter()
+            .map(|idx| &trace.evals[PREPROCESSED_TRACE_IDX][*idx])
+            .collect();
+
+        // Extend trace if necessary.
+        // TODO: Don't extend when eval_size < committed_size. Instead, pick a good
+        // subdomain. (For larger blowup factors).
+        let need_to_extend = component_evals
+            .iter()
+            .flatten()
+            .any(|c| c.domain != eval_domain);
+        let trace: TreeVec<
+            Vec<Cow<'_, CircleEvaluation<MetalBackend, BaseField, BitReversedOrder>>>
+        > = if need_to_extend {
+            let _span = span!(Level::INFO, "Extension").entered();
+            let twiddles = MetalBackend::precompute_twiddles(eval_domain.half_coset);
+            component_polys
+                .as_cols_ref()
+                .map_cols(|col| Cow::Owned(col.evaluate_with_twiddles(eval_domain, &twiddles)))
+        } else {
+            component_evals.clone().map_cols(|c| Cow::Borrowed(*c))
+        };
+
+        // Denom inverses.
+        let log_expand = eval_domain.log_size() - trace_domain.log_size();
+        let mut denom_inv = (0..1 << log_expand)
+            .map(|i| coset_vanishing(trace_domain.coset(), eval_domain.at(i)).inverse())
+            .collect_vec();
+        bit_reverse(&mut denom_inv);
+
+        // Accumulator.
+        let [mut accum] = evaluation_accumulator.columns([
+            (eval_domain.log_size(), self.n_constraints()),
+        ]);
+        accum.random_coeff_powers.reverse();
+
+        let _span = span!(Level::INFO, "Constraint point-wise eval").entered();
+
+        if
+            trace_domain.log_size() <
+            metal::m31::LOG_N_LANES + metal::very_packed_m31::LOG_N_VERY_PACKED_ELEMS
+        {
+            // Fall back to CPU if the trace is too small.
+            let mut col = accum.col.to_cpu();
+
+            for row in 0..1 << eval_domain.log_size() {
+                let trace_cols = trace.as_cols_ref().map_cols(|c| c.to_cpu());
+                let trace_cols = trace_cols.as_cols_ref();
+
+                // Evaluate constrains at row.
+                let eval = CpuDomainEvaluator::new(
+                    &trace_cols,
+                    row,
+                    &accum.random_coeff_powers,
+                    trace_domain.log_size(),
+                    eval_domain.log_size(),
+                    self.eval.log_size(),
+                    self.claimed_sum
+                );
+                let row_res = self.eval.evaluate(eval).row_res;
+
+                // Finalize row.
+                let denom_inv = denom_inv[row >> trace_domain.log_size()];
+                col.set(row, col.at(row) + row_res * denom_inv);
+            }
+            let col = SecureColumnByCoords::<MetalBackend>::from_cpu(col);
+            *accum.col = col;
+            return;
+        }
+
+        let col = unsafe {
+            metal::column::VeryPackedSecureColumnByCoords::transform_under_mut(accum.col)
+        };
+
+        let range = 0..1 <<
+            (eval_domain.log_size() -
+                metal::m31::LOG_N_LANES -
+                metal::very_packed_m31::LOG_N_VERY_PACKED_ELEMS);
+
+        #[cfg(not(feature = "parallel"))]
+        let iter = range.step_by(CHUNK_SIZE).zip(col.chunks_mut(CHUNK_SIZE));
+
+        #[cfg(feature = "parallel")]
+        let iter = range.into_par_iter().step_by(CHUNK_SIZE).zip(col.chunks_mut(CHUNK_SIZE));
+
+        // Define any `self` values outside the loop to prevent the compiler thinking there is a
+        // `Sync` requirement on `Self`.
+        let self_eval = &self.eval;
+        let self_claimed_sum = self.claimed_sum;
+
+        iter.for_each(|(chunk_idx, mut chunk)| {
+            let trace_cols = trace.as_cols_ref().map_cols(|c| c.as_ref());
+
+            for idx_in_chunk in 0..CHUNK_SIZE {
+                let vec_row = chunk_idx * CHUNK_SIZE + idx_in_chunk;
+                // Evaluate constrains at row.
+                let eval = MetalDomainEvaluator::new(
+                    &trace_cols,
+                    vec_row,
+                    &accum.random_coeff_powers,
+                    trace_domain.log_size(),
+                    eval_domain.log_size(),
+                    self_eval.log_size(),
+                    self_claimed_sum
+                );
+                let row_res = self_eval.evaluate(eval).row_res;
+
+                // Finalize row.
+                unsafe {
+                    let denom_inv = metal::very_packed_m31::VeryPackedBaseField::broadcast(
+                        denom_inv
+                            [
+
+                                    vec_row >>
+                                    (trace_domain.log_size() -
+                                        metal::m31::LOG_N_LANES -
+                                        metal::very_packed_m31::LOG_N_VERY_PACKED_ELEMS)
+
+                            ]
+                    );
+                    chunk.set_packed(
+                        idx_in_chunk,
+                        chunk.packed_at(idx_in_chunk) + row_res * denom_inv
+                    );
                 }
             }
         });
@@ -428,24 +587,14 @@ impl<E: FrameworkEval> Display for FrameworkComponent<E> {
         let log_n_rows = self.log_size();
         let mut n_cols = vec![];
         self.trace_log_degree_bounds()
-            .0
-            .iter()
+            .0.iter()
             .for_each(|interaction| {
                 n_cols.push(interaction.len());
             });
         writeln!(f, "n_rows 2^{}", log_n_rows)?;
         writeln!(f, "n_constraints {}", self.n_constraints())?;
-        writeln!(
-            f,
-            "constraint_log_degree_bound {}",
-            self.max_constraint_log_degree_bound()
-        )?;
-        writeln!(
-            f,
-            "total felts: 2^{} * {}",
-            log_n_rows,
-            n_cols.iter().sum::<usize>()
-        )?;
+        writeln!(f, "constraint_log_degree_bound {}", self.max_constraint_log_degree_bound())?;
+        writeln!(f, "total felts: 2^{} * {}", log_n_rows, n_cols.iter().sum::<usize>())?;
         for (j, n_cols) in n_cols.into_iter().enumerate() {
             writeln!(f, "\t Interaction {}: n_cols {}", j, n_cols)?;
         }

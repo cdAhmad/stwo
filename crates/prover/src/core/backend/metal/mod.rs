@@ -1,6 +1,7 @@
-use serde::{Deserialize, Serialize};
+use metal::Device;
+use serde::{ Deserialize, Serialize };
 
-use super::{Backend, BackendForChannel};
+use super::{ Backend, BackendForChannel };
 use crate::core::vcs::blake2_merkle::Blake2sMerkleChannel;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::core::vcs::poseidon252_merkle::Poseidon252MerkleChannel;
@@ -27,7 +28,14 @@ mod utils;
 pub mod very_packed_m31;
 
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
-pub struct MetalBackend;
+pub struct MetalBackend {}
+impl MetalBackend {
+    pub fn device_and_queue() -> (Device, metal::CommandQueue) {
+        let device = Device::system_default().expect("No device found");
+        let queue = device.new_command_queue();
+        (device, queue)
+    }
+}
 
 impl Backend for MetalBackend {}
 impl BackendForChannel<Blake2sMerkleChannel> for MetalBackend {}

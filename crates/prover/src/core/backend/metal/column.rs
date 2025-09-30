@@ -703,7 +703,7 @@ mod tests {
         let b: [BaseField; N_LANES * COL_PACKED_SIZE] = array::from_fn(BaseField::from);
         let c: [BaseField; N_LANES * COL_PACKED_SIZE] = array::from_fn(BaseField::from);
         let d: [BaseField; N_LANES * COL_PACKED_SIZE] = array::from_fn(BaseField::from);
-        let mut col = SecureColumnByCoords {
+        let mut col:SecureColumnByCoords<crate::core::backend::metal::MetalBackend> = SecureColumnByCoords {
             columns: [a, b, c, d].map(|values| values.into_iter().collect::<BaseColumn>()),
         };
 

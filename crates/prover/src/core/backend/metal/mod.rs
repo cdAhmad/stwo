@@ -35,6 +35,23 @@ impl MetalBackend {
         let queue = device.new_command_queue();
         (device, queue)
     }
+    pub fn load_library(device: &Device, src: &str) -> metal::Library {
+        device
+            .new_library_with_source(src, &metal::CompileOptions::new())
+            .expect("Failed to compile Metal shader")
+    }
+    pub fn create_pipeline(
+        device: &Device,
+        library: &metal::Library,
+        name: &str
+    ) -> metal::ComputePipelineState {
+        let kernel = library
+            .get_function(name, None)
+            .expect(&format!("Failed to find kernel {}", name));
+        device
+            .new_compute_pipeline_state_with_function(&kernel)
+            .expect(&format!("Failed to create pipeline for kernel {}", name))
+    }
 }
 
 impl Backend for MetalBackend {}

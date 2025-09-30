@@ -36,7 +36,7 @@ mod tests {
     #[test]
     fn generate_secure_powers_works() {
         let felt = qm31!(1, 2, 3, 4);
-        let n_powers = 10;
+        let n_powers: usize = 10;
 
         let powers = <CpuBackend as AccumulationOps>::generate_secure_powers(felt, n_powers);
 

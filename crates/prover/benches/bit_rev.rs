@@ -2,7 +2,7 @@
 
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 use itertools::Itertools;
-use stwo_prover::core::fields::m31::BaseField;
+use stwo_prover::core::{  fields::m31::BaseField};
 
 pub fn cpu_bit_rev(c: &mut Criterion) {
     use stwo_prover::core::backend::cpu::bit_reverse;
@@ -32,15 +32,17 @@ pub fn simd_bit_rev(c: &mut Criterion) {
     });
 }
 
+ 
 pub fn metal_bit_rev(c: &mut Criterion) {
-    use stwo_prover::core::backend::metal::bit_reverse::bit_reverse_m31;
-    use stwo_prover::core::backend::metal::column::BaseColumn;
+    use stwo_prover::core::backend::ColumnOps;
+    use stwo_prover::core::backend::metal2::MetalBackend;
+    use stwo_prover::core::fields::m31::BaseField;
     const SIZE: usize = 1 << 26;
-    let data = (0..SIZE).map(BaseField::from).collect::<BaseColumn>();
+     let data = (0..SIZE).map(BaseField::from).collect_vec();
     c.bench_function("metal bit_rev 26bit", |b| {
         b.iter_batched(
-            || data.data.clone(),
-            |mut data| bit_reverse_m31(&mut data),
+            || data.clone(),
+            |mut data| MetalBackend::bit_reverse_column(&mut data),
             BatchSize::LargeInput,
         );
     });

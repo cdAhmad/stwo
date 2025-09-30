@@ -1,0 +1,1 @@
+xcrun -sdk macosx metal -c bit_reverse.metal -o bit_reverse.metallib

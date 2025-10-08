@@ -1,7 +1,7 @@
 pub mod circle;
 use std::{ fmt::Debug, mem };
 use std::ffi::c_void;
-use metal::{ CompileOptions, Device,   };
+use metal::{ CompileOptions, Device };
 use serde::{ Deserialize, Serialize };
 use crate::core::backend::{ cpu::bit_reverse as cpu_bit_reverse, ColumnOps };
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
@@ -78,7 +78,6 @@ impl<T: Debug + Clone + Default> ColumnOps<T> for MetalBackend {
         let thread_group_count =
             ((n as u64) + (thread_group_size as u64) - 1) / (thread_group_size as u64);
 
-        
         encoder.dispatch_thread_groups(
             metal::MTLSize {
                 width: thread_group_count as u64,
@@ -113,7 +112,22 @@ mod tests {
     use crate::core::fields::m31::BaseField;
 
     use crate::core::backend::cpu::bit_reverse as cpu_bit_reverse;
-
+    #[test]
+    fn metal_info() {
+        let (device, _) = MetalBackend::device_and_queue();
+        println!("Metal device: {}", device.name());
+        let max_threads = device.max_threads_per_threadgroup();
+        println!(
+            "Max threads per threadgroup: {},{},{}",
+            max_threads.width,
+            max_threads.height,
+            max_threads.depth
+        );
+        let max_threadgroup_memory = device.max_threadgroup_memory_length();
+        println!("Max threadgroup memory length: {}", max_threadgroup_memory);
+        let max_working_set_size = device.recommended_max_working_set_size();
+        println!("Recommended max working set size: {}", max_working_set_size);
+    }
     #[test]
     fn bit_reverse_large_column_works() {
         const LOG_SIZE: u32 = 22;

@@ -1,8 +1,7 @@
-
 pub mod circle;
 use std::{ fmt::Debug, mem };
 use std::ffi::c_void;
-use metal::{ CompileOptions, Device };
+use metal::{ CompileOptions, Device,   };
 use serde::{ Deserialize, Serialize };
 use crate::core::backend::{ cpu::bit_reverse as cpu_bit_reverse, ColumnOps };
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
@@ -43,33 +42,25 @@ impl<T: Debug + Clone + Default> ColumnOps<T> for MetalBackend {
         let n = column.len();
         assert!(n.is_power_of_two());
         let log_n = n.ilog2();
-        if n < 1 << 12 {
+        if n < 1 << 1 {
             cpu_bit_reverse(column);
             return;
         }
         let buffer_size = std::mem::size_of::<T>() * n;
         let (device, queue) = Self::device_and_queue();
-        // let library=Self::load_library(
+        let library = Self::load_library(&device, include_bytes!("shaders/bit_reverse.metallib"));
+        // let library = Self::load_library_with_path(
         //     &device,
-        //     include_bytes!("shaders/bit_reverse.metallib"),
+        //     include_str!("shaders/bit_reverse.metal")
         // );
-        let library = Self::load_library_with_path(
-            &device,
-            include_str!("shaders/bit_reverse.metal")
-        );
-        let pipeline = Self::create_pipeline(&device, &library, "bit_reverse");
-        // 创建 input buffer（只读）
-        let input_buffer = device.new_buffer_with_data(
+        let pipeline = Self::create_pipeline(&device, &library, "bit_reverse_single");
+        // 创建 input buffer
+        let buffer = device.new_buffer_with_data(
             column.as_ptr() as *const _,
             buffer_size as u64,
             metal::MTLResourceOptions::StorageModeShared
         );
 
-        // 创建 output buffer（可写）
-        let output_buffer = device.new_buffer(
-            buffer_size as u64,
-            metal::MTLResourceOptions::StorageModeShared
-        );
         // 创建 log_n buffer
         let log_n_buffer = device.new_buffer_with_data(
             &log_n as *const u32 as *const c_void,
@@ -80,17 +71,14 @@ impl<T: Debug + Clone + Default> ColumnOps<T> for MetalBackend {
         let command_buffer = queue.new_command_buffer();
         let encoder = command_buffer.new_compute_command_encoder();
         encoder.set_compute_pipeline_state(&pipeline);
-        encoder.set_buffer(0, Some(&input_buffer), 0);
-        encoder.set_buffer(1, Some(&output_buffer), 0);
-        encoder.set_buffer(2, Some(&log_n_buffer), 0);
+        encoder.set_buffer(0, Some(&buffer), 0);
+        encoder.set_buffer(1, Some(&log_n_buffer), 0);
 
         let thread_group_size = pipeline.thread_execution_width();
         let thread_group_count =
             ((n as u64) + (thread_group_size as u64) - 1) / (thread_group_size as u64);
 
-        encoder.use_resource(&input_buffer, metal::MTLResourceUsage::Read);
-        encoder.use_resource(&output_buffer, metal::MTLResourceUsage::Write);
-
+        
         encoder.dispatch_thread_groups(
             metal::MTLSize {
                 width: thread_group_count as u64,
@@ -110,7 +98,7 @@ impl<T: Debug + Clone + Default> ColumnOps<T> for MetalBackend {
         command_buffer.wait_until_completed();
         // 从 GPU 读回结果
         unsafe {
-            let output_ptr = output_buffer.contents() as *const T;
+            let output_ptr = buffer.contents() as *const T;
             std::ptr::copy_nonoverlapping(output_ptr, column.as_mut_ptr(), n as usize);
         }
     }

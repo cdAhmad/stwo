@@ -105,7 +105,7 @@ impl ColumnOps<BaseField> for VulkanBackend {
             StandardCommandBufferAllocator::new(device.clone(), Default::default())
         );
         // 计算工作组数量
-        let workgroup_count = ((n as u32) + 63) / 64;
+        let workgroup_count = ((n as u32) + 253) / 254;
 
         // 创建并执行命令缓冲区
         let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
@@ -125,9 +125,9 @@ impl ColumnOps<BaseField> for VulkanBackend {
             )
             .expect("Failed to bind descriptor set");
         unsafe {
-            let _ = command_buffer_builder.push_constants(compute_pipeline.layout().clone(), 0, [
-                log_n as u32,
-            ]).expect("Failed to push constants");
+            let _ = command_buffer_builder
+                .push_constants(compute_pipeline.layout().clone(), 0, [log_n as u32])
+                .expect("Failed to push constants");
             command_buffer_builder.dispatch([workgroup_count, 1, 1]).expect("Failed to dispatch");
         }
 

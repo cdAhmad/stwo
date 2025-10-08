@@ -42,7 +42,7 @@ impl<T: Debug + Clone + Default> ColumnOps<T> for MetalBackend {
         let n = column.len();
         assert!(n.is_power_of_two());
         let log_n = n.ilog2();
-        if n < 1 << 1 {
+        if n < 1 << 12 {
             cpu_bit_reverse(column);
             return;
         }

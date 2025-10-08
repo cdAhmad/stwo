@@ -4,7 +4,7 @@ vulkano_shaders::shader! {
 #version 450
 
 // 工作组大小（必须与 Rust 中 dispatch 一致）
-layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 // 单个可读写缓冲区(in-place)
 layout(set = 0, binding = 0) buffer Data {

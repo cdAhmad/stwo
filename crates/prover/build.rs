@@ -19,7 +19,7 @@ fn main() {
     };
 
     // Shader 源文件路径（相对于 crate root）
-    let shader_src = "src/core/backend/metal2/shaders/bit_reverse.metal";
+    let shader_src = "src/core/backend/metal/shaders/bit_reverse.metal";
     let air_path = out_dir.join("bit_reverse.air");
     let metallib_path = out_dir.join("bit_reverse.metallib");
 

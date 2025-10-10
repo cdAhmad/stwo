@@ -19,6 +19,8 @@ use vulkano_util::context::VulkanoContext;
 
 use crate::core::backend::vulkan::shaders;
 
+pub const PIPELINE_ACCUMULATE: &str = "accumulate";
+pub const PIPELINE_BIT_REVERSE: &str = "bit_reverse";
 pub struct GpuContext {
     device: Arc<vulkano::device::Device>,
     queue: Arc<vulkano::device::Queue>,
@@ -44,12 +46,12 @@ impl GpuContext {
         let mut pipelines = HashMap::new();
         // 创建所有 pipeline
         pipelines.insert(
-            "accumulate",
+            PIPELINE_ACCUMULATE,
             Self::create_pipeline(&device, shaders::accumulate::load(device.clone()))
         );
 
         pipelines.insert(
-            "bit_reverse",
+            PIPELINE_BIT_REVERSE,
             Self::create_pipeline(&device, shaders::bit_reverse::load(device.clone()))
         );
         let a = Self {

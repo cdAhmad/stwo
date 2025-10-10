@@ -10,6 +10,7 @@ use vulkano::pipeline::{ Pipeline, PipelineBindPoint };
 use vulkano::sync::GpuFuture;
 
 use crate::core::air::accumulation::AccumulationOps;
+use crate::core::backend::vulkan::gpu_context::PIPELINE_ACCUMULATE;
 use crate::core::backend::vulkan::{ VulkanBackend };
 use crate::core::fields::qm31::SecureField;
 use crate::core::fields::secure_column::SecureColumnByCoords;
@@ -51,7 +52,7 @@ impl AccumulationOps for VulkanBackend {
             },
             other.to_uvec4().into_iter()
         ).expect("Failed to create buffer");
-        let pipeline = context.pipeline("accumulation");
+        let pipeline = context.pipeline(PIPELINE_ACCUMULATE);
         // 创建描述符集
         let descriptor_set = DescriptorSet::new(
             context.descriptor_allocator(),

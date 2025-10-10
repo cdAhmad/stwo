@@ -16,7 +16,7 @@ use std::{ fmt::Debug, sync::Arc };
 use crate::core::{
     backend::{
         cpu::bit_reverse as cpu_bit_reverse,
-        vulkan::gpu_context::{ GpuContext, GPU_CONTEXT },
+        vulkan::gpu_context::{ GpuContext, GPU_CONTEXT, PIPELINE_BIT_REVERSE },
         ColumnOps,
     },
     fields::m31::BaseField,
@@ -60,7 +60,7 @@ impl ColumnOps<BaseField> for VulkanBackend {
             },
             column.iter().cloned()
         ).expect("Failed to create buffer");
-        let pipeline = context.pipeline("bit_reverse");
+        let pipeline = context.pipeline(PIPELINE_BIT_REVERSE);
         // 创建描述符集
         let descriptor_set = DescriptorSet::new(
             context.descriptor_allocator(),
@@ -70,7 +70,7 @@ impl ColumnOps<BaseField> for VulkanBackend {
         ).expect("Failed to create descriptor set");
 
         // 计算工作组数量
-        let workgroup_count = ((n as u32) + 253) / 254;
+        let workgroup_count = ((n as u32) + 255) / 256;
 
         // 创建并执行命令缓冲区
         let mut command_buffer_builder = AutoCommandBufferBuilder::primary(

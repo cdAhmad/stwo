@@ -31,7 +31,6 @@ impl<B: ColumnOps<BaseField>> SecureColumnByCoords<B> {
             columns: std::array::from_fn(|_| Col::<B, BaseField>::zeros(len)),
         }
     }
-
     /// # Safety
     pub unsafe fn uninitialized(len: usize) -> Self {
         Self {

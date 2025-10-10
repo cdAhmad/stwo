@@ -1,90 +1,122 @@
-// use bytemuck::cast_slice;
-// use itertools::Chunk;
+use bytemuck::cast_slice;
+use itertools::{ Itertools };
 
-// use crate::core::{
-//     backend::{ vulkan::m31::{ PackedBaseField, ELEMENT_SIZE }, Column },
-//     fields::m31::{ BaseField, M31 },
-// };
+use crate::core::{
+    backend::{
+        vulkan::{ m31::{ PackedBaseField, PackedM31, ELEMENT_SIZE }, VulkanBackend },
+        Column,
+        CpuBackend,
+    },
+    fields::{ m31::BaseField, qm31::SecureField, secure_column::SecureColumnByCoords },
+};
 
-// #[derive(Clone, Debug)]
-// pub struct BaseColumn {
-//     pub data: Vec<PackedBaseField>,
-//     /// The number of [`BaseField`]s in the vector.
-//     pub length: usize,
-// }
+#[derive(Clone, Debug)]
+pub struct BaseColumn {
+    pub data: Vec<PackedBaseField>,
+    /// The number of [`BaseField`]s in the vector.
+    pub length: usize,
+}
 
-// impl BaseColumn {
-//     pub fn as_slice(&self) -> &[BaseField] {
-//         &cast_slice(&self.data)[..self.length]
-//     }
-// }
+impl BaseColumn {
+    pub fn as_slice(&self) -> &[BaseField] {
+        &cast_slice(&self.data)[..self.length]
+    }
+}
 
-// impl Column<BaseField> for BaseColumn {
-//     fn zeros(len: usize) -> Self {
-//         Self {
-//             data: vec![[0; ELEMENT_SIZE]; len.div_ceil(ELEMENT_SIZE)],
-//             length: len,
-//         }
-//     }
-//     #[allow(clippy::uninit_vec)]
-//     unsafe fn uninitialized(len: usize) -> Self {
-//         let mut data = Vec::with_capacity(len.div_ceil(ELEMENT_SIZE));
-//         data.set_len(len.div_ceil(ELEMENT_SIZE));
-//         Self { data, length: len }
-//     }
+impl Column<BaseField> for BaseColumn {
+    fn zeros(len: usize) -> Self {
+        Self {
+            data: vec![PackedM31::zero(); len.div_ceil(ELEMENT_SIZE)],
+            length: len,
+        }
+    }
+    #[allow(clippy::uninit_vec)]
+    unsafe fn uninitialized(len: usize) -> Self {
+        let mut data = Vec::with_capacity(len.div_ceil(ELEMENT_SIZE));
+        data.set_len(len.div_ceil(ELEMENT_SIZE));
+        Self { data, length: len }
+    }
 
-//     fn to_cpu(&self) -> Vec<BaseField> {
-//         self.as_slice().to_vec()
-//     }
+    fn to_cpu(&self) -> Vec<BaseField> {
+        self.as_slice().to_vec()
+    }
 
-//     fn len(&self) -> usize {
-//         self.length
-//     }
+    fn len(&self) -> usize {
+        self.length
+    }
 
-//     fn at(&self, index: usize) -> BaseField {
-//         M31(self.data[index / ELEMENT_SIZE][index % ELEMENT_SIZE])
-//     }
+    fn at(&self, index: usize) -> BaseField {
+        self.data[index / ELEMENT_SIZE].to_m31_array()[index % ELEMENT_SIZE]
+    }
 
-//     fn set(&mut self, index: usize, value: BaseField) {
-//         self.data[index / ELEMENT_SIZE][index % ELEMENT_SIZE] = value.0;
-//     }
+    fn set(&mut self, index: usize, value: BaseField) {
+        self.data[index / ELEMENT_SIZE].set_m31(index % ELEMENT_SIZE, value);
+    }
 
-//     fn is_empty(&self) -> bool {
-//         self.length == 0
-//     }
-// }
+    fn is_empty(&self) -> bool {
+        self.length == 0
+    }
+}
 
-// impl FromIterator<BaseField> for BaseColumn {
-//     fn from_iter<T: IntoIterator<Item = BaseField>>(iter: T) -> Self {
-//         let mut chunks = iter.into_iter().array_chunks();
-//         let mut data = (&mut chunks).map(PackedBaseField::from_array).collect_vec();
-//         let mut length = data.len() * ELEMENT_SIZE;
+impl FromIterator<BaseField> for BaseColumn {
+    fn from_iter<T: IntoIterator<Item = BaseField>>(iter: T) -> Self {
+        let mut chunks = iter.into_iter().array_chunks();
+        let mut data = (&mut chunks).map(PackedBaseField::from_m31_array).collect_vec();
+        let mut length = data.len() * ELEMENT_SIZE;
 
-//         let mut data = Vec::new();
-//         let mut temp = [0u32; ELEMENT_SIZE];
-//         let mut count = 0;
-//         for value in iter {
-//             temp[count % ELEMENT_SIZE] = value.0;
-//             count += 1;
-//             if count % ELEMENT_SIZE == 0 {
-//                 data.push(temp);
-//                 temp = [0u32; ELEMENT_SIZE];
-//             }
-//         }
-//         if count % ELEMENT_SIZE != 0 {
-//             data.push(temp);
-//         }
-//         Self {
-//             data,
-//             length: count,
-//         }
-//     }
-// }
+        if let Some(remainder) = chunks.into_remainder() {
+            if !remainder.is_empty() {
+                length += remainder.len();
+                let mut last: PackedM31 = PackedBaseField::zero();
+                last.set_m31_array(remainder.as_slice());
+                data.push(last);
+            }
+        }
+        Self {
+            data,
+            length: length,
+        }
+    }
+}
 
 // use crate::core::{ backend::vulkan::VulkanBackend, fields::secure_column::SecureColumnByCoords };
 
-// impl SecureColumnByCoords<VulkanBackend> {
-//     pub fn to_uvec4(&self) {
-//         let a: Vec<crate::core::fields::m31::M31>= self.columns[0];
-//     }
-// }
+impl SecureColumnByCoords<VulkanBackend> {
+    pub const fn packed_len(&self) -> usize {
+        self.columns[0].len()
+    }
+    pub unsafe fn packed_at(&self, vec_index: usize) -> [u32; 4] {
+        [
+            self.columns[0].get_unchecked(vec_index).0,
+            self.columns[1].get_unchecked(vec_index).0,
+            self.columns[2].get_unchecked(vec_index).0,
+            self.columns[3].get_unchecked(vec_index).0,
+        ]
+    }
+
+    pub fn to_uvec4(&self) -> Vec<[u32; 4]> {
+        assert_eq!(self.columns.len(), 4);
+        (0..self.packed_len()).map(|i| unsafe { self.packed_at(i) }).collect()
+    }
+
+    pub fn copy_from_slice(&mut self, slice: &[[u32; 4]]) {
+        assert_eq!(self.columns.len(), 4);
+        assert_eq!(self.packed_len(), slice.len());
+        for i in 0..self.packed_len() {
+            let [a, b, c, d] = slice[i];
+            unsafe {
+                self.columns[0].get_unchecked_mut(i).0 = a;
+                self.columns[1].get_unchecked_mut(i).0 = b;
+                self.columns[2].get_unchecked_mut(i).0 = c;
+                self.columns[3].get_unchecked_mut(i).0 = d;
+            }
+        }
+    }
+}
+impl FromIterator<SecureField> for SecureColumnByCoords<VulkanBackend> {
+    fn from_iter<I: IntoIterator<Item = SecureField>>(iter: I) -> Self {
+        let cpu_col = SecureColumnByCoords::<CpuBackend>::from_iter(iter);
+        let columns = cpu_col.columns.map(|col| col.into_iter().collect());
+        SecureColumnByCoords { columns }
+    }
+}

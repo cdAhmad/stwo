@@ -70,6 +70,10 @@ name = "bit_rev"
 
 [[bench]]
 harness = false
+name = "accumulation"
+
+[[bench]]
+harness = false
 name = "eval_at_point"
 
 [[bench]]

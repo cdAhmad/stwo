@@ -1,23 +1,10 @@
 use serde::{ Deserialize, Serialize };
-use vulkano_util::context::VulkanoContext;
 use vulkano::{
     buffer::{ Buffer, BufferCreateInfo, BufferUsage },
-    command_buffer::{
-        allocator::StandardCommandBufferAllocator,
-        AutoCommandBufferBuilder,
-        CommandBufferUsage,
-    },
-    descriptor_set::{ allocator::StandardDescriptorSetAllocator, WriteDescriptorSet },
-    memory::allocator::{ AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator },
-    pipeline::{
-        compute::ComputePipelineCreateInfo,
-        layout::PipelineDescriptorSetLayoutCreateInfo,
-        ComputePipeline,
-        Pipeline,
-        PipelineBindPoint,
-        PipelineLayout,
-        PipelineShaderStageCreateInfo,
-    },
+    command_buffer::{ AutoCommandBufferBuilder, CommandBufferUsage },
+    descriptor_set::{ WriteDescriptorSet },
+    memory::allocator::{ AllocationCreateInfo, MemoryTypeFilter },
+    pipeline::{ Pipeline, PipelineBindPoint },
     sync::GpuFuture,
 };
 mod accumulation;
@@ -27,52 +14,21 @@ mod column;
 use vulkano::descriptor_set::{ DescriptorSet };
 use std::{ fmt::Debug, sync::Arc };
 use crate::core::{
-    backend::{ cpu::bit_reverse as cpu_bit_reverse, ColumnOps },
-    fields::m31::{ BaseField },
+    backend::{
+        cpu::bit_reverse as cpu_bit_reverse,
+        vulkan::gpu_context::{ GpuContext, GPU_CONTEXT },
+        ColumnOps,
+    },
+    fields::m31::BaseField,
 };
 mod circle;
+mod gpu_context;
+
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub struct VulkanBackend;
 impl VulkanBackend {
-    // fn device_and_queue() -> (Arc<vulkano::device::Device>, Arc<vulkano::device::Queue>) {
-    //     let vulkano_context = VulkanoContext::new(Default::default());
-    //     (vulkano_context.device().clone(), vulkano_context.graphics_queue().clone())
-    // }
-
-    fn device_queue_pipeline_allocator(
-        loader: fn(device: Arc<vulkano::device::Device>) -> Arc<vulkano::shader::ShaderModule>
-    ) -> (
-        Arc<vulkano::device::Device>,
-        Arc<vulkano::device::Queue>,
-        Arc<vulkano::pipeline::ComputePipeline>,
-        Arc<StandardMemoryAllocator>,
-    ) {
-        let vulkano_context = VulkanoContext::new(Default::default());
-        let device = vulkano_context.device();
-        let queue = vulkano_context.graphics_queue();
-        // 加载着色器
-        let shader = loader(device.clone());
-        let entry_point = shader.entry_point("main").unwrap();
-        // 创建计算管线
-        let compute_pipeline = {
-            let stage = PipelineShaderStageCreateInfo {
-                ..PipelineShaderStageCreateInfo::new(entry_point)
-            };
-            let layout = PipelineLayout::new(
-                device.clone(),
-                PipelineDescriptorSetLayoutCreateInfo::from_stages([&stage])
-                    .into_pipeline_layout_create_info(device.clone())
-                    .unwrap()
-            ).unwrap();
-            ComputePipeline::new(
-                device.clone(),
-                None,
-                ComputePipelineCreateInfo::stage_layout(stage, layout)
-            ).unwrap()
-        };
-        let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
-
-        (device.clone(), queue.clone(), compute_pipeline, memory_allocator)
+    pub fn gpu_context() -> &'static Arc<GpuContext> {
+        GPU_CONTEXT.get_or_init(GpuContext::new)
     }
 }
 
@@ -86,14 +42,11 @@ impl ColumnOps<BaseField> for VulkanBackend {
             cpu_bit_reverse(column);
             return;
         }
+        let context = Self::gpu_context();
 
-        let (device, queue, compute_pipeline, memory_allocator) =
-            Self::device_queue_pipeline_allocator(|d| {
-                shaders::bit_reverse::load(d.clone()).expect("Failed to create shader module")
-            });
         // Single in-place buffer
         let buffer = Buffer::from_iter(
-            memory_allocator.clone(),
+            context.memory_allocator(),
             BufferCreateInfo {
                 usage: BufferUsage::STORAGE_BUFFER |
                 BufferUsage::TRANSFER_SRC |
@@ -107,44 +60,38 @@ impl ColumnOps<BaseField> for VulkanBackend {
             },
             column.iter().cloned()
         ).expect("Failed to create buffer");
-
-        let ds_allocator = Arc::new(
-            StandardDescriptorSetAllocator::new(device.clone(), Default::default())
-        );
+        let pipeline = context.pipeline("bit_reverse");
         // 创建描述符集
         let descriptor_set = DescriptorSet::new(
-            ds_allocator,
-            compute_pipeline.layout().set_layouts()[0].clone(),
+            context.descriptor_allocator(),
+            pipeline.layout().set_layouts()[0].clone(),
             [WriteDescriptorSet::buffer(0, buffer.clone())],
             []
         ).expect("Failed to create descriptor set");
 
-        let cb_allocator = Arc::new(
-            StandardCommandBufferAllocator::new(device.clone(), Default::default())
-        );
         // 计算工作组数量
         let workgroup_count = ((n as u32) + 253) / 254;
 
         // 创建并执行命令缓冲区
         let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
-            cb_allocator,
-            queue.queue_family_index(),
+            context.command_allocator(),
+            context.queue().queue_family_index(),
             CommandBufferUsage::OneTimeSubmit
         ).expect("Failed to create command buffer builder");
 
         command_buffer_builder
-            .bind_pipeline_compute(compute_pipeline.clone())
+            .bind_pipeline_compute(pipeline.clone())
             .expect("Failed to bind compute pipeline")
             .bind_descriptor_sets(
                 PipelineBindPoint::Compute,
-                compute_pipeline.layout().clone(),
+                pipeline.clone().layout().clone(),
                 0,
                 descriptor_set
             )
             .expect("Failed to bind descriptor set");
         unsafe {
             let _ = command_buffer_builder
-                .push_constants(compute_pipeline.layout().clone(), 0, [log_n as u32])
+                .push_constants(pipeline.clone().layout().clone(), 0, [log_n as u32])
                 .expect("Failed to push constants");
             command_buffer_builder.dispatch([workgroup_count, 1, 1]).expect("Failed to dispatch");
         }
@@ -155,8 +102,8 @@ impl ColumnOps<BaseField> for VulkanBackend {
 
         // 执行计算
         let future = vulkano::sync
-            ::now(device.clone())
-            .then_execute(queue.clone(), command_buffer)
+            ::now(context.device())
+            .then_execute(context.queue(), command_buffer)
             .unwrap()
             .then_signal_fence_and_flush()
             .unwrap();

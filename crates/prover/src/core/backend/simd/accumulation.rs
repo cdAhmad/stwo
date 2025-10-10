@@ -11,15 +11,20 @@ use crate::core::fields::secure_column::SecureColumnByCoords;
 impl AccumulationOps for SimdBackend {
     fn accumulate(column: &mut SecureColumnByCoords<Self>, other: &SecureColumnByCoords<Self>) {
         for i in 0..column.packed_len() {
-            let res_coeff = unsafe { column.packed_at(i) + other.packed_at(i) };
-            unsafe { column.set_packed(i, res_coeff) };
+            let res_coeff: super::qm31::PackedQM31 = unsafe {
+                column.packed_at(i) + other.packed_at(i)
+            };
+            unsafe {
+                column.set_packed(i, res_coeff);
+            }
         }
     }
 
     /// Generates the first `n_powers` powers of `felt` using SIMD.
     /// Refer to `CpuBackend::generate_secure_powers` for the scalar CPU implementation.
     fn generate_secure_powers(felt: SecureField, n_powers: usize) -> Vec<SecureField> {
-        let base_arr = <CpuBackend as AccumulationOps>::generate_secure_powers(felt, N_LANES)
+        let base_arr = <CpuBackend as AccumulationOps>
+            ::generate_secure_powers(felt, N_LANES)
             .try_into()
             .unwrap();
         let base = PackedSecureField::from_array(base_arr);
@@ -44,8 +49,18 @@ mod tests {
     use crate::core::air::accumulation::AccumulationOps;
     use crate::core::backend::cpu::CpuBackend;
     use crate::core::backend::simd::SimdBackend;
+    use crate::core::fields::secure_column::SecureColumnByCoords;
     use crate::qm31;
 
+    #[test]
+    fn test_accumulate() {
+        let mut column = SecureColumnByCoords::<SimdBackend>::zeros(100);
+        column.set(19, qm31!(1, 2, 3, 4));
+        let mut other = SecureColumnByCoords::<SimdBackend>::zeros(100);
+        other.set(19, qm31!(4, 3, 2, 1));
+        SimdBackend::accumulate(&mut column, &other);
+        assert_eq!(column.at(19), qm31!(5, 5, 5, 5));
+    }
     #[test]
     fn test_generate_secure_powers_simd() {
         let felt = qm31!(1, 2, 3, 4);
@@ -55,7 +70,8 @@ mod tests {
             let expected = <CpuBackend as AccumulationOps>::generate_secure_powers(felt, n_powers);
             let actual = <SimdBackend as AccumulationOps>::generate_secure_powers(felt, n_powers);
             assert_eq!(
-                expected, actual,
+                expected,
+                actual,
                 "Error generating secure powers in n_powers = {}.",
                 n_powers
             );

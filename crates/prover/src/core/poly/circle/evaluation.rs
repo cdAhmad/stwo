@@ -1,17 +1,18 @@
 use std::marker::PhantomData;
-use std::ops::{Deref, Index};
+use std::ops::{ Deref, Index };
 
 use educe::Educe;
 
-use super::{CircleDomain, CirclePoly, PolyOps};
+use super::{ CircleDomain, CirclePoly, PolyOps };
 use crate::core::backend::cpu::CpuCircleEvaluation;
 use crate::core::backend::simd::SimdBackend;
-use crate::core::backend::{Col, Column, ColumnOps, CpuBackend};
-use crate::core::circle::{CirclePointIndex, Coset};
+use crate::core::backend::vulkan::VulkanBackend;
+use crate::core::backend::{ Col, Column, ColumnOps, CpuBackend };
+use crate::core::circle::{ CirclePointIndex, Coset };
 use crate::core::fields::m31::BaseField;
 use crate::core::fields::ExtensionOf;
 use crate::core::poly::twiddles::TwiddleTree;
-use crate::core::poly::{BitReversedOrder, NaturalOrder};
+use crate::core::poly::{ BitReversedOrder, NaturalOrder };
 use crate::core::utils::bit_reverse_index;
 
 /// An evaluation defined on a [CircleDomain].
@@ -41,8 +42,7 @@ impl<B: ColumnOps<F>, F: ExtensionOf<BaseField>, EvalOrder> CircleEvaluation<B, 
 impl<F: ExtensionOf<BaseField>, B: ColumnOps<F>> CircleEvaluation<B, F, NaturalOrder> {
     // TODO(alont): Remove. Is this even used.
     pub fn get_at(&self, point_index: CirclePointIndex) -> F {
-        self.values
-            .at(self.domain.find(point_index).expect("Not in domain"))
+        self.values.at(self.domain.find(point_index).expect("Not in domain"))
     }
 
     pub fn bit_reverse(mut self) -> CircleEvaluation<B, F, BitReversedOrder> {
@@ -58,14 +58,14 @@ impl<F: ExtensionOf<BaseField>> CpuCircleEvaluation<F, NaturalOrder> {
             return CosetSubEvaluation::new(
                 &self.values[..self.domain.half_coset.size()],
                 offset,
-                coset.step_size / self.domain.half_coset.step_size,
+                coset.step_size / self.domain.half_coset.step_size
             );
         }
         if let Some(offset) = self.domain.half_coset.conjugate().find(coset.initial_index) {
             return CosetSubEvaluation::new(
                 &self.values[self.domain.half_coset.size()..],
                 offset,
-                (-coset.step_size) / self.domain.half_coset.step_size,
+                -coset.step_size / self.domain.half_coset.step_size
             );
         }
         panic!("Coset not found in domain");
@@ -93,26 +93,33 @@ impl<B: ColumnOps<F>, F: ExtensionOf<BaseField>> CircleEvaluation<B, F, BitRever
     }
 
     pub fn get_at(&self, point_index: CirclePointIndex) -> F {
-        self.values.at(bit_reverse_index(
-            self.domain.find(point_index).expect("Not in domain"),
-            self.domain.log_size(),
-        ))
+        self.values.at(
+            bit_reverse_index(
+                self.domain.find(point_index).expect("Not in domain"),
+                self.domain.log_size()
+            )
+        )
     }
 }
 
 impl<F: ExtensionOf<BaseField>, EvalOrder> CircleEvaluation<SimdBackend, F, EvalOrder>
-where
-    SimdBackend: ColumnOps<F>,
+    where SimdBackend: ColumnOps<F>
 {
     pub fn to_cpu(&self) -> CircleEvaluation<CpuBackend, F, EvalOrder> {
         CircleEvaluation::new(self.domain, self.values.to_cpu())
     }
 }
- 
+
+impl<F: ExtensionOf<BaseField>, EvalOrder> CircleEvaluation<VulkanBackend, F, EvalOrder>
+    where VulkanBackend: ColumnOps<F>
+{
+    pub fn to_cpu(&self) -> CircleEvaluation<CpuBackend, F, EvalOrder> {
+        CircleEvaluation::new(self.domain, self.values.to_cpu())
+    }
+}
 
 impl<B: ColumnOps<F>, F: ExtensionOf<BaseField>, EvalOrder> Deref
-    for CircleEvaluation<B, F, EvalOrder>
-{
+for CircleEvaluation<B, F, EvalOrder> {
     type Target = Col<B, F>;
 
     fn deref(&self) -> &Self::Target {
@@ -169,11 +176,9 @@ mod tests {
     fn test_interpolate_non_canonic() {
         let domain = CanonicCoset::new(3).circle_domain();
         assert_eq!(domain.log_size(), 3);
-        let evaluation = CpuCircleEvaluation::<_, NaturalOrder>::new(
-            domain,
-            (0..8).map(BaseField::from_u32_unchecked).collect(),
-        )
-        .bit_reverse();
+        let evaluation = CpuCircleEvaluation::<_, NaturalOrder>
+            ::new(domain, (0..8).map(BaseField::from_u32_unchecked).collect())
+            .bit_reverse();
         let poly = evaluation.interpolate();
         for (i, point) in domain.iter().enumerate() {
             assert_eq!(poly.eval_at_point(point.into_ef()), m31!(i as u32).into());

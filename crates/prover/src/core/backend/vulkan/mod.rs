@@ -20,38 +20,38 @@ use vulkano::{
     },
     sync::GpuFuture,
 };
-mod bit_reverse;
+mod accumulation;
+mod shaders;
+mod m31;
+mod column;
 use vulkano::descriptor_set::{ DescriptorSet };
 use std::{ fmt::Debug, sync::Arc };
 use crate::core::{
     backend::{ cpu::bit_reverse as cpu_bit_reverse, ColumnOps },
     fields::m31::{ BaseField },
 };
+mod circle;
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub struct VulkanBackend;
 impl VulkanBackend {
-    fn vulkano_context() -> VulkanoContext {
-        VulkanoContext::new(Default::default())
-    }
-}
+    // fn device_and_queue() -> (Arc<vulkano::device::Device>, Arc<vulkano::device::Queue>) {
+    //     let vulkano_context = VulkanoContext::new(Default::default());
+    //     (vulkano_context.device().clone(), vulkano_context.graphics_queue().clone())
+    // }
 
-impl ColumnOps<BaseField> for VulkanBackend {
-    type Column = Vec<BaseField>;
-    fn bit_reverse_column(column: &mut Self::Column) {
-        let n = column.len();
-        assert!(n.is_power_of_two());
-        let log_n = n.ilog2();
-        if n < 1 << 12 {
-            cpu_bit_reverse(column);
-            return;
-        }
-        // Initialize Vulkan context
-        let vulkano_context = Self::vulkano_context();
-        let queue = vulkano_context.graphics_queue();
+    fn device_queue_pipeline_allocator(
+        loader: fn(device: Arc<vulkano::device::Device>) -> Arc<vulkano::shader::ShaderModule>
+    ) -> (
+        Arc<vulkano::device::Device>,
+        Arc<vulkano::device::Queue>,
+        Arc<vulkano::pipeline::ComputePipeline>,
+        Arc<StandardMemoryAllocator>,
+    ) {
+        let vulkano_context = VulkanoContext::new(Default::default());
         let device = vulkano_context.device();
+        let queue = vulkano_context.graphics_queue();
         // 加载着色器
-
-        let shader = bit_reverse::load(device.clone()).expect("Failed to create shader module");
+        let shader = loader(device.clone());
         let entry_point = shader.entry_point("main").unwrap();
         // 创建计算管线
         let compute_pipeline = {
@@ -70,8 +70,27 @@ impl ColumnOps<BaseField> for VulkanBackend {
                 ComputePipelineCreateInfo::stage_layout(stage, layout)
             ).unwrap()
         };
-
         let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
+
+        (device.clone(), queue.clone(), compute_pipeline, memory_allocator)
+    }
+}
+
+impl ColumnOps<BaseField> for VulkanBackend {
+    type Column = Vec<BaseField>;
+    fn bit_reverse_column(column: &mut Self::Column) {
+        let n = column.len();
+        assert!(n.is_power_of_two());
+        let log_n = n.ilog2();
+        if n < 1 << 12 {
+            cpu_bit_reverse(column);
+            return;
+        }
+
+        let (device, queue, compute_pipeline, memory_allocator) =
+            Self::device_queue_pipeline_allocator(|d| {
+                shaders::bit_reverse::load(d.clone()).expect("Failed to create shader module")
+            });
         // Single in-place buffer
         let buffer = Buffer::from_iter(
             memory_allocator.clone(),
@@ -93,7 +112,6 @@ impl ColumnOps<BaseField> for VulkanBackend {
             StandardDescriptorSetAllocator::new(device.clone(), Default::default())
         );
         // 创建描述符集
-
         let descriptor_set = DescriptorSet::new(
             ds_allocator,
             compute_pipeline.layout().set_layouts()[0].clone(),

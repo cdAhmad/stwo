@@ -31,8 +31,19 @@ mod tests {
     use crate::core::air::accumulation::AccumulationOps;
     use crate::core::backend::CpuBackend;
     use crate::core::fields::qm31::SecureField;
+    use crate::core::fields::secure_column::SecureColumnByCoords;
     use crate::core::fields::FieldExpOps;
     use crate::qm31;
+
+    #[test]
+    fn test_accumulate() {
+        let mut column = SecureColumnByCoords::<CpuBackend>::zeros(100);
+        column.set(19, qm31!(1, 2, 3, 4));
+        let mut other = SecureColumnByCoords::<CpuBackend>::zeros(100);
+        other.set(19, qm31!(4, 3, 2, 1));
+        CpuBackend::accumulate(&mut column, &other);
+        assert_eq!(column.at(19), qm31!(5, 5, 5, 5));
+    }
     #[test]
     fn generate_secure_powers_works() {
         let felt = qm31!(1, 2, 3, 4);

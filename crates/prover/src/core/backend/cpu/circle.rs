@@ -2,14 +2,14 @@ use num_traits::Zero;
 
 use super::CpuBackend;
 use crate::core::backend::cpu::bit_reverse;
-use crate::core::circle::{CirclePoint, Coset};
-use crate::core::fft::{butterfly, ibutterfly};
+use crate::core::circle::{ CirclePoint, Coset };
+use crate::core::fft::{ butterfly, ibutterfly };
 use crate::core::fields::m31::BaseField;
 use crate::core::fields::qm31::SecureField;
-use crate::core::fields::{batch_inverse_in_place, ExtensionOf};
-use crate::core::poly::circle::{CircleDomain, CircleEvaluation, CirclePoly, PolyOps};
+use crate::core::fields::{ batch_inverse_in_place, ExtensionOf };
+use crate::core::poly::circle::{ CircleDomain, CircleEvaluation, CirclePoly, PolyOps };
 use crate::core::poly::twiddles::TwiddleTree;
-use crate::core::poly::utils::{domain_line_twiddles_from_tree, fold};
+use crate::core::poly::utils::{ domain_line_twiddles_from_tree, fold };
 use crate::core::poly::BitReversedOrder;
 
 impl PolyOps for CpuBackend {
@@ -17,7 +17,7 @@ impl PolyOps for CpuBackend {
 
     fn interpolate(
         eval: CircleEvaluation<Self, BaseField, BitReversedOrder>,
-        twiddles: &TwiddleTree<Self>,
+        twiddles: &TwiddleTree<Self>
     ) -> CirclePoly<Self> {
         assert!(eval.domain.half_coset.is_doubling_of(twiddles.root_coset));
 
@@ -97,7 +97,7 @@ impl PolyOps for CpuBackend {
     fn evaluate(
         poly: &CirclePoly<Self>,
         domain: CircleDomain,
-        twiddles: &TwiddleTree<Self>,
+        twiddles: &TwiddleTree<Self>
     ) -> CircleEvaluation<Self, BaseField, BitReversedOrder> {
         assert!(domain.half_coset.is_doubling_of(twiddles.root_coset));
 
@@ -144,7 +144,10 @@ impl PolyOps for CpuBackend {
         // Inverse twiddles.
         // Fallback to the non-chunked version if the domain is not big enough.
         if CHUNK_SIZE > root_coset.size() {
-            let itwiddles = twiddles.iter().map(|&t| t.inverse()).collect();
+            let itwiddles = twiddles
+                .iter()
+                .map(|&t| t.inverse())
+                .collect();
             return TwiddleTree {
                 root_coset,
                 twiddles,
@@ -177,13 +180,13 @@ pub fn slow_precompute_twiddles(mut coset: Coset) -> Vec<BaseField> {
                 .iter()
                 .take(coset.size() / 2)
                 .map(|p| p.x)
-                .collect::<Vec<_>>(),
+                .collect::<Vec<_>>()
         );
         bit_reverse(&mut twiddles[i0..]);
         coset = coset.double();
     }
     // Pad with an arbitrary value to make the length a power of 2.
-    twiddles.push(1.into());
+    twiddles.push((1).into());
     twiddles
 }
 
@@ -192,9 +195,9 @@ fn fft_layer_loop(
     i: usize,
     h: usize,
     t: BaseField,
-    butterfly_fn: impl Fn(&mut BaseField, &mut BaseField, BaseField),
+    butterfly_fn: impl Fn(&mut BaseField, &mut BaseField, BaseField)
 ) {
-    for l in 0..(1 << i) {
+    for l in 0..1 << i {
         let idx0 = (h << (i + 1)) + l;
         let idx1 = idx0 + (1 << i);
         let (mut val0, mut val1) = (values[idx0], values[idx1]);
@@ -207,7 +210,7 @@ fn fft_layer_loop(
 ///
 /// Only works for line twiddles generated from a domain with size `>4`.
 fn circle_twiddles_from_line_twiddles(
-    first_line_twiddles: &[BaseField],
+    first_line_twiddles: &[BaseField]
 ) -> impl Iterator<Item = BaseField> + '_ {
     // The twiddles for layer 0 can be computed from the twiddles for layer 1.
     // Since the twiddles are bit reversed, we consider the circle domain in bit reversed order.
@@ -229,8 +232,7 @@ fn circle_twiddles_from_line_twiddles(
 }
 
 impl<F: ExtensionOf<BaseField>, EvalOrder> IntoIterator
-    for CircleEvaluation<CpuBackend, F, EvalOrder>
-{
+for CircleEvaluation<CpuBackend, F, EvalOrder> {
     type Item = F;
     type IntoIter = std::vec::IntoIter<F>;
 

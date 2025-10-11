@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use num_traits::One;
 use vulkano::buffer::{ Buffer, BufferCreateInfo, BufferUsage };
 use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
 use vulkano::command_buffer::{ AutoCommandBufferBuilder, CommandBufferUsage };
@@ -10,6 +9,7 @@ use vulkano::pipeline::{ Pipeline, PipelineBindPoint };
 use vulkano::sync::GpuFuture;
 
 use crate::core::air::accumulation::AccumulationOps;
+use crate::core::backend::simd::SimdBackend;
 use crate::core::backend::vulkan::gpu_context::{ PIPELINE_ACCUMULATE };
 use crate::core::backend::vulkan::{ VulkanBackend };
 use crate::core::fields::qm31::SecureField;
@@ -113,13 +113,7 @@ impl AccumulationOps for VulkanBackend {
     }
 
     fn generate_secure_powers(felt: SecureField, n_powers: usize) -> Vec<SecureField> {
-        (0..n_powers)
-            .scan(SecureField::one(), |acc, _| {
-                let res = *acc;
-                *acc *= felt;
-                Some(res)
-            })
-            .collect()
+        SimdBackend::generate_secure_powers(felt, n_powers)
     }
 }
 

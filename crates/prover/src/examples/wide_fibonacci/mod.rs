@@ -184,7 +184,7 @@ mod tests {
         );
     }
 
-    #[test_log::test]
+    #[test]
     fn test_wide_fib_prove_with_blake() {
         for log_n_instances in 2..=16 {
             let config = PcsConfig::default();
@@ -241,11 +241,17 @@ mod tests {
             verify(&[&component], verifier_channel, commitment_scheme, proof).unwrap();
         }
     }
-
-    #[test_log::test]
-    fn test_wide_fib_prove_with_blake_vulkan() {
-        
-    }
+    // #[test]
+    // fn test_wide_fib_prove_with_blake_vulkan() {
+    //     let log_n_instances = 15;
+    //     let config = PcsConfig::default();
+    //     // Precompute twiddles.
+    //     let twiddles = SimdBackend::precompute_twiddles(
+    //         CanonicCoset::new(
+    //             log_n_instances + 1 + config.fri_config.log_blowup_factor
+    //         ).circle_domain().half_coset
+    //     );
+    // }
 
     #[test]
     #[cfg(not(target_arch = "wasm32"))]

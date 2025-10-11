@@ -1,4 +1,3 @@
-use vulkano::{ sync::{ self, GpuFuture } };
 
 use crate::core::{
     backend::{
@@ -92,13 +91,7 @@ fn gpu_batch_inverse(twiddles: &Vec<u32>) -> Vec<u32> {
     let group_counts = context.group_counts(len);
     // 创建命令缓冲区
     let command_buffer = context.command_buffer(&pipeline, descriptor_set, group_counts);
-    sync::now(context.device())
-        .then_execute(context.queue(), command_buffer)
-        .expect("Failed to execute command buffer")
-        .then_signal_fence_and_flush()
-        .expect("Failed to signal fence")
-        .wait(None)
-        .expect("Failed to wait for future");
+    context.sync_execution(command_buffer);
     let mapped = buffer.read().expect("Failed to read buffer");
     mapped.to_vec()
 }

@@ -24,6 +24,7 @@ use vulkano::{
         PipelineShaderStageCreateInfo,
     },
     shader::ShaderModule,
+    sync::GpuFuture,
     Validated,
     VulkanError,
 };
@@ -186,6 +187,16 @@ impl GpuContext {
         }
 
         builder.build().expect("Failed to build command buffer")
+    }
+    pub fn sync_execution(self: &Arc<Self>, command_buffer: Arc<PrimaryAutoCommandBuffer>) {
+        vulkano::sync
+            ::now(self.device())
+            .then_execute(self.queue(), command_buffer)
+            .expect("Failed to execute command buffer")
+            .then_signal_fence_and_flush()
+            .expect("Failed to signal fence")
+            .wait(None)
+            .expect("Failed to wait for future");
     }
 }
 

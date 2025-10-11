@@ -22,8 +22,8 @@ pub fn cpu_accumulation(c: &mut Criterion) {
         let temp=(index as u32)% 2147483647;
         column.set(index, SecureField::from(temp));
         other.set(index, SecureField::from(temp));
-    }
-    c.bench_function(format!("cpu accumlate {}bit", LOG_SIZE).as_str(), |b| {
+    } 
+    c.bench_function(format!("cpu accumulation {}bit", LOG_SIZE).as_str(), |b| {
         b.iter_batched(
             || column.clone(),
             |mut data| CpuBackend::accumulate(&mut data, &other),
@@ -40,7 +40,7 @@ pub fn simd_accumulation(c: &mut Criterion) {
         other.set(index, SecureField::from(index as u32));
     }
 
-    c.bench_function(format!("simd accumlate {}bit", LOG_SIZE).as_str(), |b| {
+    c.bench_function(format!("simd accumulation {}bit", LOG_SIZE).as_str(), |b| {
         b.iter_batched(
             || column.clone(),
             |mut data| SimdBackend::accumulate(&mut data, &other),
@@ -57,7 +57,7 @@ pub fn vulkan_accumulation(c: &mut Criterion) {
         other.set(index, SecureField::from(index as u32));
     }
 
-    c.bench_function(format!("vulkan accumlate {}bit", LOG_SIZE).as_str(), |b| {
+    c.bench_function(format!("vulkan accumulation {}bit", LOG_SIZE).as_str(), |b| {
         b.iter_batched(
             || column.clone(),
             |mut data| VulkanBackend::accumulate(&mut data, &other),
@@ -68,7 +68,7 @@ pub fn vulkan_accumulation(c: &mut Criterion) {
 
 criterion_group!(
     name = accumulation;
-    config = Criterion::default().sample_size(10);
+    config = Criterion::default().sample_size(15);
     targets = cpu_accumulation,simd_accumulation,vulkan_accumulation
 );
 criterion_main!(accumulation);

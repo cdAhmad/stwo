@@ -67,7 +67,7 @@ impl MerkleOps<Blake2sMerkleHasher> for SimdBackend {
                 .map(|i| {
                     Blake2sMerkleHasher::hash_node(
                         prev_layer.map(|prev_layer| (prev_layer[2 * i], prev_layer[2 * i + 1])),
-                        &columns.iter().map(|column| column.at(i)).collect_vec(),
+                        &columns.iter().map(|column: &&crate::core::backend::simd::column::BaseColumn| column.at(i)).collect_vec(),
                     )
                 })
                 .collect();

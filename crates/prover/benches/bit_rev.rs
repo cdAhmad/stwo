@@ -54,7 +54,7 @@ pub fn vulkan_bit_rev(c: &mut Criterion) {
     c.bench_function(format!("vulkan bit_rev {}bit", LOG_SIZE).as_str(), |b| {
         b.iter_batched(
             || data.clone(),
-            |mut data| VulkanBackend::bit_reverse_column(&mut data),
+            |mut data| <VulkanBackend as ColumnOps<BaseField>>::bit_reverse_column(&mut data),
             BatchSize::LargeInput
         );
     });

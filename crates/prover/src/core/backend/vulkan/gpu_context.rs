@@ -128,7 +128,7 @@ impl GpuContext {
         self.pipelines.get(name).cloned().expect("Failed to get pipeline").clone()
     }
 
-    pub fn buffer_in_out(self: &Arc<Self>, data: &Vec<u32>) -> Subbuffer<[u32]> {
+    pub fn buffer_in_out(self: &Arc<Self>, data: &[u32]) -> Subbuffer<[u32]> {
         Buffer::from_iter(
             self.memory_allocator(),
             BufferCreateInfo {
@@ -142,7 +142,7 @@ impl GpuContext {
                 MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
                 ..Default::default()
             },
-            data.into_iter().cloned()
+            data.iter().copied()
         ).expect("Failed to create buffer")
     }
     pub fn descriptor_set(
@@ -166,7 +166,8 @@ impl GpuContext {
         self: &Arc<Self>,
         pipeline: &Arc<ComputePipeline>,
         descriptor_set: Arc<DescriptorSet>,
-        group_counts: [u32; 3]
+        group_counts: [u32; 3],
+        push_constants: &[u32]
     ) -> Arc<PrimaryAutoCommandBuffer> {
         let mut builder = AutoCommandBufferBuilder::primary(
             self.command_allocator(),
@@ -182,6 +183,15 @@ impl GpuContext {
                 descriptor_set
             )
             .expect("Failed to bind descriptor set");
+        push_constants
+            .iter()
+            .enumerate()
+            .for_each(|(i, v)| {
+                builder
+                    .push_constants(pipeline.layout().clone(), i as u32, v.clone())
+                    .expect("Failed to push constants {i}:{v}");
+            });
+
         unsafe {
             builder.dispatch(group_counts).expect("Failed to dispatch");
         }

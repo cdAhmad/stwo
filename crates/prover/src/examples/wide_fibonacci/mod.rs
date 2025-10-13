@@ -85,6 +85,7 @@ mod tests {
     use crate::core::air::Component;
     use crate::core::backend::simd::m31::{ PackedBaseField, LOG_N_LANES };
     use crate::core::backend::simd::SimdBackend;
+  
     use crate::core::backend::Column;
     use crate::core::channel::Blake2sChannel;
     #[cfg(not(target_arch = "wasm32"))]
@@ -241,17 +242,29 @@ mod tests {
             verify(&[&component], verifier_channel, commitment_scheme, proof).unwrap();
         }
     }
-    // #[test]
-    // fn test_wide_fib_prove_with_blake_vulkan() {
-    //     let log_n_instances = 15;
-    //     let config = PcsConfig::default();
-    //     // Precompute twiddles.
-    //     let twiddles = SimdBackend::precompute_twiddles(
-    //         CanonicCoset::new(
-    //             log_n_instances + 1 + config.fri_config.log_blowup_factor
-    //         ).circle_domain().half_coset
-    //     );
-    // }
+    #[test]
+    fn test_wide_fib_prove_with_blake_vulkan() {
+        // let log_n_instances = 15;
+        // let config = PcsConfig::default();
+        // // Precompute twiddles.
+        // let twiddles = VulkanBackend::precompute_twiddles(
+        //     CanonicCoset::new(
+        //         log_n_instances + 1 + config.fri_config.log_blowup_factor
+        //     ).circle_domain().half_coset
+        // );
+        //    // Setup protocol.
+        //     let prover_channel = &mut Blake2sChannel::default();
+            // let mut commitment_scheme = CommitmentSchemeProver::<
+            //     VulkanBackend,
+            //     Blake2sMerkleChannel
+            // >::new(config, &twiddles);
+
+            // // Preprocessed trace
+            // let mut tree_builder = commitment_scheme.tree_builder();
+            // tree_builder.extend_evals([]);
+            // tree_builder.commit(prover_channel);
+
+    }
 
     #[test]
     #[cfg(not(target_arch = "wasm32"))]

@@ -16,16 +16,15 @@ layout(push_constant) uniform Params {
     uint log_n;
 } pc;
 
-// 位反转函数：反转低 `bits` 位
+// 高效位反转（展开）
 uint bit_reverse(uint x, uint bits) {
-    uint r = 0;
-    for (uint i = 0; i < bits; ++i) {
-        r = (r << 1) | (x & 1u);
-        x >>= 1;
-    }
-    return r;
+    x = ((x & 0x55555555u) << 1) | ((x & 0xAAAAAAAAu) >> 1);
+    x = ((x & 0x33333333u) << 2) | ((x & 0xCCCCCCCCu) >> 2);
+    x = ((x & 0x0F0F0F0Fu) << 4) | ((x & 0xF0F0F0F0u) >> 4);
+    x = ((x & 0x00FF00FFu) << 8) | ((x & 0xFF00FF00u) >> 8);
+    x = (x << 16) | (x >> 16);
+    return x >> (32u - bits);
 }
-
 void main() {
     uint n = 1u << pc.log_n;          // 总元素数
     uint i = gl_GlobalInvocationID.x; // 当前线程索引

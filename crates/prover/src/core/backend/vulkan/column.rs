@@ -1,91 +1,110 @@
-use bytemuck::cast_slice;
-use itertools::{ Itertools };
-
 use crate::core::{
     backend::{
-        vulkan::{ m31::{ PackedBaseField, PackedM31, ELEMENT_SIZE }, VulkanBackend },
-        Column,
-        CpuBackend,
+        vulkan::{gpu_context::PIPELINE_BIT_REVERSE, VulkanBackend}, Column, ColumnOps, CpuBackend
     },
-    fields::{ m31::{ BaseField }, qm31::SecureField, secure_column::SecureColumnByCoords },
+    fields::{ m31::{ BaseField, M31 }, qm31::SecureField, secure_column::SecureColumnByCoords },
 };
+
+impl ColumnOps<BaseField> for VulkanBackend {
+    type Column = Vec<BaseField>;
+    fn bit_reverse_column(column: &mut Self::Column) {
+        let n = column.len();
+        assert!(n.is_power_of_two());
+        let log_n = n.ilog2();
+
+        let context = Self::gpu_context();
+
+        let u32_slice = unsafe {
+            std::slice::from_raw_parts_mut(column.as_mut_ptr() as *mut u32, n)
+        };
+
+        let buffer = context.buffer_in_out(
+            u32_slice
+        );
+        let pipeline = context.pipeline(PIPELINE_BIT_REVERSE);
+
+        let descriptor_set = context.descriptor_set(&pipeline, buffer.clone());
+        let group_counts = context.group_counts(n  );
+        // 创建命令缓冲区
+        let command_buffer = context.command_buffer(
+            &pipeline,
+            descriptor_set,
+            group_counts,
+            &[log_n as u32]
+        );
+        context.sync_execution(command_buffer);
+        let mapped = buffer.read().expect("Failed to read buffer");
+        unsafe {
+            std::ptr::copy_nonoverlapping(mapped.as_ptr(), column.as_mut_ptr() as * mut u32, n);
+        }
+        // mapped
+        //     .to_vec()
+        //     .iter()
+        //     .enumerate()
+        //     .for_each(|(i, f)| {
+        //         column[i].0 = *f;
+        //     })
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct BaseColumn {
-    pub data: Vec<PackedBaseField>,
-    /// The number of [`BaseField`]s in the vector.
-    pub length: usize,
+    pub data: Vec<BaseField>,
 }
 
-impl BaseColumn {
-    pub fn as_slice(&self) -> &[BaseField] {
-        &cast_slice(&self.data)[..self.length]
-    }
-}
+// impl BaseColumn {
+//     pub fn as_slice(&self) -> &[BaseField] {
+//         &self.data
+//     }
+// }
 
 impl Column<BaseField> for BaseColumn {
     fn zeros(len: usize) -> Self {
         Self {
-            data: vec![PackedM31::zero(); len.div_ceil(ELEMENT_SIZE)],
-            length: len,
+            data: vec![M31(0); len],
         }
     }
     #[allow(clippy::uninit_vec)]
     unsafe fn uninitialized(len: usize) -> Self {
-        let mut data = Vec::with_capacity(len.div_ceil(ELEMENT_SIZE));
-        data.set_len(len.div_ceil(ELEMENT_SIZE));
-        Self { data, length: len }
+        let   data = Vec::with_capacity(len);
+        Self { data }
     }
 
     fn to_cpu(&self) -> Vec<BaseField> {
-        self.as_slice().to_vec()
+        self.data.clone()
     }
 
     fn len(&self) -> usize {
-        self.length
+        self.data.len()
     }
 
     fn at(&self, index: usize) -> BaseField {
-        self.data[index / ELEMENT_SIZE].to_m31_array()[index % ELEMENT_SIZE]
+        self.data[index]
     }
 
     fn set(&mut self, index: usize, value: BaseField) {
-        self.data[index / ELEMENT_SIZE].set_m31(index % ELEMENT_SIZE, value);
+        self.data[index] = value;
     }
 
     fn is_empty(&self) -> bool {
-        self.length == 0
+        self.len() == 0
     }
 }
 
 impl FromIterator<BaseField> for BaseColumn {
     fn from_iter<T: IntoIterator<Item = BaseField>>(iter: T) -> Self {
-        let mut chunks = iter.into_iter().array_chunks();
-        let mut data = (&mut chunks).map(PackedBaseField::from_m31_array).collect_vec();
-        let mut length = data.len() * ELEMENT_SIZE;
-
-        if let Some(remainder) = chunks.into_remainder() {
-            if !remainder.is_empty() {
-                length += remainder.len();
-                let mut last: PackedM31 = PackedBaseField::zero();
-                last.set_m31_array(remainder.as_slice());
-                data.push(last);
-            }
-        }
+        let data = iter.into_iter().collect();
         Self {
             data,
-            length: length,
         }
     }
 }
-
-// use crate::core::{ backend::vulkan::VulkanBackend, fields::secure_column::SecureColumnByCoords };
 
 impl SecureColumnByCoords<VulkanBackend> {
     pub const fn packed_len(&self) -> usize {
         self.columns[0].len()
     }
-    
+
     pub unsafe fn packed_at(&self, vec_index: usize) -> [u32; 4] {
         [
             self.columns[0].get_unchecked(vec_index).0,

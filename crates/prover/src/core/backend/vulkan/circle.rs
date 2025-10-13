@@ -1,4 +1,3 @@
-
 use crate::core::{
     backend::{
         cpu::circle::slow_precompute_twiddles,
@@ -90,7 +89,7 @@ fn gpu_batch_inverse(twiddles: &Vec<u32>) -> Vec<u32> {
     let descriptor_set = context.descriptor_set(&pipeline, buffer.clone());
     let group_counts = context.group_counts(len);
     // 创建命令缓冲区
-    let command_buffer = context.command_buffer(&pipeline, descriptor_set, group_counts);
+    let command_buffer = context.command_buffer(&pipeline, descriptor_set, group_counts, &[]);
     context.sync_execution(command_buffer);
     let mapped = buffer.read().expect("Failed to read buffer");
     mapped.to_vec()

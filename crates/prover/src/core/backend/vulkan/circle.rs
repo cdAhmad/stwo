@@ -86,11 +86,11 @@ fn gpu_batch_inverse(twiddles: &Vec<u32>) -> Vec<u32> {
     let buffer = context.buffer_in_out(twiddles);
     let pipeline = context.pipeline(PIPELINE_BATCH_INVERSE);
 
-    let descriptor_set = context.descriptor_set(&pipeline, buffer.clone());
+    let descriptor_set = context.descriptor_set(&pipeline, &[buffer.clone()]);
     let group_counts = context.group_counts(len);
     // 创建命令缓冲区
     let command_buffer = context.command_buffer(&pipeline, descriptor_set, group_counts, &[]);
-    context.sync_execution(command_buffer);
+    context.execution_wait(command_buffer);
     let mapped = buffer.read().expect("Failed to read buffer");
     mapped.to_vec()
 }

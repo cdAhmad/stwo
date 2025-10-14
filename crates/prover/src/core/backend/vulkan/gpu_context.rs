@@ -7,6 +7,7 @@ use vulkano::{
         AutoCommandBufferBuilder,
         CommandBufferUsage,
         PrimaryAutoCommandBuffer,
+        PrimaryCommandBufferAbstract,
     },
     descriptor_set::{
         allocator::StandardDescriptorSetAllocator,
@@ -145,15 +146,18 @@ impl GpuContext {
             data.iter().copied()
         ).expect("Failed to create buffer")
     }
+    
     pub fn descriptor_set(
         self: &Arc<Self>,
         pipeline: &Arc<ComputePipeline>,
-        buffer: Subbuffer<[u32]>
+        buffers: &[Subbuffer<[u32]>]
     ) -> Arc<DescriptorSet> {
         DescriptorSet::new(
             self.descriptor_allocator(),
             pipeline.layout().set_layouts()[0].clone(),
-            [WriteDescriptorSet::buffer(0, buffer)],
+            buffers.iter().enumerate().map(|(index, buffer)| {
+                WriteDescriptorSet::buffer(index as u32, buffer.clone())
+            }),
             []
         ).expect("Failed to create descriptor set")
     }
@@ -198,11 +202,11 @@ impl GpuContext {
 
         builder.build().expect("Failed to build command buffer")
     }
-    pub fn sync_execution(self: &Arc<Self>, command_buffer: Arc<PrimaryAutoCommandBuffer>) {
-        vulkano::sync
-            ::now(self.device())
-            .then_execute(self.queue(), command_buffer)
-            .expect("Failed to execute command buffer")
+    pub fn execution_wait(self: &Arc<Self>, command_buffer: Arc<PrimaryAutoCommandBuffer>) {
+        let future = command_buffer
+            .execute(self.queue())
+            .expect("Failed to execute command buffer");
+        future
             .then_signal_fence_and_flush()
             .expect("Failed to signal fence")
             .wait(None)

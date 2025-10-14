@@ -1,6 +1,9 @@
 use crate::core::{
     backend::{
-        vulkan::{gpu_context::PIPELINE_BIT_REVERSE, VulkanBackend}, Column, ColumnOps, CpuBackend
+        vulkan::{ gpu_context::PIPELINE_BIT_REVERSE, VulkanBackend },
+        Column,
+        ColumnOps,
+        CpuBackend,
     },
     fields::{ m31::{ BaseField, M31 }, qm31::SecureField, secure_column::SecureColumnByCoords },
 };
@@ -18,13 +21,11 @@ impl ColumnOps<BaseField> for VulkanBackend {
             std::slice::from_raw_parts_mut(column.as_mut_ptr() as *mut u32, n)
         };
 
-        let buffer = context.buffer_in_out(
-            u32_slice
-        );
+        let buffer = context.buffer_in_out(u32_slice);
         let pipeline = context.pipeline(PIPELINE_BIT_REVERSE);
 
-        let descriptor_set = context.descriptor_set(&pipeline, buffer.clone());
-        let group_counts = context.group_counts(n  );
+        let descriptor_set = context.descriptor_set(&pipeline, &[buffer.clone()]);
+        let group_counts = context.group_counts(n);
         // 创建命令缓冲区
         let command_buffer = context.command_buffer(
             &pipeline,
@@ -32,18 +33,11 @@ impl ColumnOps<BaseField> for VulkanBackend {
             group_counts,
             &[log_n as u32]
         );
-        context.sync_execution(command_buffer);
+        context.execution_wait(command_buffer);
         let mapped = buffer.read().expect("Failed to read buffer");
         unsafe {
-            std::ptr::copy_nonoverlapping(mapped.as_ptr(), column.as_mut_ptr() as * mut u32, n);
+            std::ptr::copy_nonoverlapping(mapped.as_ptr(), column.as_mut_ptr() as *mut u32, n);
         }
-        // mapped
-        //     .to_vec()
-        //     .iter()
-        //     .enumerate()
-        //     .for_each(|(i, f)| {
-        //         column[i].0 = *f;
-        //     })
     }
 }
 
@@ -66,7 +60,7 @@ impl Column<BaseField> for BaseColumn {
     }
     #[allow(clippy::uninit_vec)]
     unsafe fn uninitialized(len: usize) -> Self {
-        let   data = Vec::with_capacity(len);
+        let data = Vec::with_capacity(len);
         Self { data }
     }
 

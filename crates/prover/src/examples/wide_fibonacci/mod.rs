@@ -69,7 +69,6 @@ pub fn generate_trace<const N: usize>(
         .map(|eval| CircleEvaluation::<SimdBackend, _, BitReversedOrder>::new(domain, eval))
         .collect_vec()
 }
-
 #[cfg(test)]
 mod tests {
     use itertools::Itertools;
@@ -85,7 +84,7 @@ mod tests {
     use crate::core::air::Component;
     use crate::core::backend::simd::m31::{ PackedBaseField, LOG_N_LANES };
     use crate::core::backend::simd::SimdBackend;
-  
+
     use crate::core::backend::Column;
     use crate::core::channel::Blake2sChannel;
     #[cfg(not(target_arch = "wasm32"))]
@@ -137,7 +136,6 @@ mod tests {
             .collect_vec();
         generate_trace::<FIB_SEQUENCE_LENGTH>(log_n_instances, &inputs)
     }
-
     fn fibonacci_constraint_evaluator<const N: u32>(eval: AssertEvaluator<'_>) {
         (WideFibonacciEval::<FIB_SEQUENCE_LENGTH> { log_n_rows: N }).evaluate(eval);
     }
@@ -241,29 +239,6 @@ mod tests {
             commitment_scheme.commit(proof.commitments[1], &sizes[1], verifier_channel);
             verify(&[&component], verifier_channel, commitment_scheme, proof).unwrap();
         }
-    }
-    #[test]
-    fn test_wide_fib_prove_with_blake_vulkan() {
-        // let log_n_instances = 15;
-        // let config = PcsConfig::default();
-        // // Precompute twiddles.
-        // let twiddles = VulkanBackend::precompute_twiddles(
-        //     CanonicCoset::new(
-        //         log_n_instances + 1 + config.fri_config.log_blowup_factor
-        //     ).circle_domain().half_coset
-        // );
-        //    // Setup protocol.
-        //     let prover_channel = &mut Blake2sChannel::default();
-            // let mut commitment_scheme = CommitmentSchemeProver::<
-            //     VulkanBackend,
-            //     Blake2sMerkleChannel
-            // >::new(config, &twiddles);
-
-            // // Preprocessed trace
-            // let mut tree_builder = commitment_scheme.tree_builder();
-            // tree_builder.extend_evals([]);
-            // tree_builder.commit(prover_channel);
-
     }
 
     #[test]

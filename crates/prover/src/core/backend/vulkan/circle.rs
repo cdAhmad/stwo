@@ -1,13 +1,14 @@
 use crate::core::{
     backend::{
         cpu::circle::slow_precompute_twiddles,
-        vulkan::{ gpu_context::{ PIPELINE_BATCH_INVERSE }, VulkanBackend },
+        vulkan::{ fft, gpu_context::PIPELINE_BATCH_INVERSE, VulkanBackend },
     },
     circle::{ CirclePoint, Coset },
     fields::{ m31::BaseField, qm31::SecureField },
     poly::{
         circle::{ CircleDomain, CircleEvaluation, CirclePoly, PolyOps },
-        twiddles::{ TwiddleTree },
+        twiddles::TwiddleTree,
+        utils::domain_line_twiddles_from_tree,
         BitReversedOrder,
     },
 };
@@ -15,14 +16,20 @@ impl PolyOps for VulkanBackend {
     type Twiddles = Vec<u32>;
 
     fn interpolate(
-        _: CircleEvaluation<Self, BaseField, BitReversedOrder>,
-        _: &TwiddleTree<Self>
+        eval: CircleEvaluation<Self, BaseField, BitReversedOrder>,
+        twiddles: &TwiddleTree<Self>
     ) -> CirclePoly<Self> {
-        //  let log_size = eval.values.length.ilog2();
-        // if log_size < MIN_FFT_LOG_SIZE {
-        //     let cpu_poly = eval.to_cpu().interpolate();
-        //     return CirclePoly::new(cpu_poly.coeffs.into_iter().collect());
-        // }
+        let log_size = eval.values.data.len().ilog2();
+        if log_size < 5 {
+            let cpu_poly = eval.to_cpu().interpolate();
+            return CirclePoly::new(cpu_poly.coeffs.into_iter().collect());
+        }
+        let mut values = eval.values;
+        let twiddles = domain_line_twiddles_from_tree(eval.domain, &twiddles.itwiddles);
+        unsafe {
+            fft::ifft::ifft( values.data.as_mut_ptr() as *mut u32, &twiddles, log_size as usize);
+        }
+
         todo!()
     }
 

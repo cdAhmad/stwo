@@ -1,7 +1,8 @@
 use crate::core::{
     backend::{
         cpu::circle::slow_precompute_twiddles,
-        vulkan::{ fft, gpu_context::PIPELINE_BATCH_INVERSE, VulkanBackend },
+        vulkan::{ fft::{self, MIN_FFT_LOG_SIZE}, gpu_context::PIPELINE_BATCH_INVERSE, VulkanBackend },
+        Column,
     },
     circle::{ CirclePoint, Coset },
     fields::{ m31::BaseField, qm31::SecureField },
@@ -15,24 +16,6 @@ use crate::core::{
 impl PolyOps for VulkanBackend {
     type Twiddles = Vec<u32>;
 
-    fn interpolate(
-        eval: CircleEvaluation<Self, BaseField, BitReversedOrder>,
-        twiddles: &TwiddleTree<Self>
-    ) -> CirclePoly<Self> {
-        let log_size = eval.values.data.len().ilog2();
-        if log_size < 5 {
-            let cpu_poly = eval.to_cpu().interpolate();
-            return CirclePoly::new(cpu_poly.coeffs.into_iter().collect());
-        }
-        let mut values = eval.values;
-        let twiddles = domain_line_twiddles_from_tree(eval.domain, &twiddles.itwiddles);
-        unsafe {
-            fft::ifft::ifft( values.data.as_mut_ptr() as *mut u32, &twiddles, log_size as usize);
-        }
-
-        todo!()
-    }
-
     fn eval_at_point(_: &CirclePoly<Self>, _: CirclePoint<SecureField>) -> SecureField {
         // poly.eval_at_point(point);
         todo!()
@@ -43,9 +26,9 @@ impl PolyOps for VulkanBackend {
     }
 
     fn evaluate(
-        _: &CirclePoly<Self>,
-        _: CircleDomain,
-        _: &TwiddleTree<Self>
+        _poly: &CirclePoly<Self>,
+        _domain: CircleDomain,
+        _twiddles: &TwiddleTree<Self>
     ) -> CircleEvaluation<Self, BaseField, BitReversedOrder> {
         unimplemented!()
     }
@@ -85,6 +68,26 @@ impl PolyOps for VulkanBackend {
             itwiddles,
         }
     }
+
+    fn interpolate(
+        eval: CircleEvaluation<Self, BaseField, BitReversedOrder>,
+        twiddles: &TwiddleTree<Self>
+    ) -> CirclePoly<Self> {
+        let log_size = eval.values.data.len().ilog2();
+        if log_size < MIN_FFT_LOG_SIZE {
+            let cpu_poly = eval.to_cpu().interpolate();
+            return CirclePoly::new(cpu_poly.coeffs.into_iter().collect());
+        }
+
+        let mut values = eval.values;
+        let twiddles = domain_line_twiddles_from_tree(eval.domain, &twiddles.itwiddles);
+
+        unsafe {
+            let v = values.data.as_mut_ptr() as *mut u32;
+            fft::ifft::ifft(v, &twiddles, log_size as usize);
+        }
+        CirclePoly::new(values)
+    }
 }
 fn gpu_batch_inverse(twiddles: &Vec<u32>) -> Vec<u32> {
     let context = VulkanBackend::gpu_context();
@@ -105,27 +108,50 @@ fn gpu_batch_inverse(twiddles: &Vec<u32>) -> Vec<u32> {
 #[cfg(test)]
 mod test {
     use crate::core::{
-        backend::{ vulkan::VulkanBackend, CpuBackend },
-        poly::circle::{ CanonicCoset, PolyOps },
+        backend::{
+            vulkan::{ fft::{ CACHED_FFT_LOG_SIZE, MIN_FFT_LOG_SIZE }, VulkanBackend },
+            CpuBackend,
+        },
+        fields::m31::BaseField,
+        poly::{ circle::{ CanonicCoset, CircleEvaluation, PolyOps }, BitReversedOrder },
     };
+
+    #[test]
+    fn test_interpolate_and_eval() {
+        for log_size in MIN_FFT_LOG_SIZE..MIN_FFT_LOG_SIZE + 2 {
+            let domain = CanonicCoset::new(log_size).circle_domain();
+            let evaluation = CircleEvaluation::<VulkanBackend, BaseField, BitReversedOrder>::new(
+                domain,
+                (0..1 << log_size).map(BaseField::from).collect()
+            );
+
+            evaluation.clone().interpolate();
+            // let evaluation2 = poly.evaluate(domain);
+
+            // assert_eq!(evaluation.values.to_cpu(), evaluation2.values.to_cpu());
+        }
+    }
+
     #[test]
     fn test_optimized_precompute_twiddles() {
-        let coset = CanonicCoset::new(14).half_coset();
-        let twiddles = VulkanBackend::precompute_twiddles(coset);
-        let expected_twiddles = CpuBackend::precompute_twiddles(coset);
-        assert_eq!(
-            twiddles.twiddles,
-            expected_twiddles.twiddles
-                .iter()
-                .map(|x| x.0)
-                .collect::<Vec<u32>>()
-        );
-        assert_eq!(
-            twiddles.itwiddles,
-            expected_twiddles.itwiddles
-                .iter()
-                .map(|x| x.0)
-                .collect::<Vec<u32>>()
-        );
+        for log_size in MIN_FFT_LOG_SIZE..CACHED_FFT_LOG_SIZE + 4 {
+            let coset = CanonicCoset::new(log_size).half_coset();
+            let twiddles = VulkanBackend::precompute_twiddles(coset);
+            let expected_twiddles = CpuBackend::precompute_twiddles(coset);
+            assert_eq!(
+                twiddles.twiddles,
+                expected_twiddles.twiddles
+                    .iter()
+                    .map(|x| x.0)
+                    .collect::<Vec<u32>>()
+            );
+            assert_eq!(
+                twiddles.itwiddles,
+                expected_twiddles.itwiddles
+                    .iter()
+                    .map(|x| x.0)
+                    .collect::<Vec<u32>>()
+            );
+        }
     }
 }

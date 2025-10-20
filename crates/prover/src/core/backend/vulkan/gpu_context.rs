@@ -1,7 +1,7 @@
 use std::{ collections::HashMap, sync::{ Arc, OnceLock } };
 
 use vulkano::{
-    buffer::{ Buffer, BufferCreateInfo, BufferUsage, Subbuffer },
+    buffer::{ Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer },
     command_buffer::{
         allocator::StandardCommandBufferAllocator,
         AutoCommandBufferBuilder,
@@ -36,6 +36,7 @@ use crate::core::backend::vulkan::shaders;
 pub const PIPELINE_ACCUMULATE: &str = "accumulate";
 pub const PIPELINE_BIT_REVERSE: &str = "bit_reverse";
 pub const PIPELINE_BATCH_INVERSE: &str = "batch_inverse";
+pub const PIPELINE_IFFT: &str = "ifft";
 pub struct GpuContext {
     device: Arc<vulkano::device::Device>,
     queue: Arc<vulkano::device::Queue>,
@@ -72,6 +73,11 @@ impl GpuContext {
         pipelines.insert(
             PIPELINE_BATCH_INVERSE,
             Self::create_pipeline(&device, shaders::batch_inverse::load(device.clone()))
+        );
+
+        pipelines.insert(
+            PIPELINE_IFFT,
+            Self::create_pipeline(&device, shaders::ifft::load(device.clone()))
         );
         let a = Self {
             device,
@@ -146,7 +152,7 @@ impl GpuContext {
             data.iter().copied()
         ).expect("Failed to create buffer")
     }
-    
+
     pub fn descriptor_set(
         self: &Arc<Self>,
         pipeline: &Arc<ComputePipeline>,
@@ -155,9 +161,12 @@ impl GpuContext {
         DescriptorSet::new(
             self.descriptor_allocator(),
             pipeline.layout().set_layouts()[0].clone(),
-            buffers.iter().enumerate().map(|(index, buffer)| {
-                WriteDescriptorSet::buffer(index as u32, buffer.clone())
-            }),
+            buffers
+                .iter()
+                .enumerate()
+                .map(|(index, buffer)| {
+                    WriteDescriptorSet::buffer(index as u32, buffer.clone())
+                }),
             []
         ).expect("Failed to create descriptor set")
     }
@@ -202,6 +211,39 @@ impl GpuContext {
 
         builder.build().expect("Failed to build command buffer")
     }
+
+    pub fn command_buffer_constants<T:BufferContents>(
+        self: &Arc<Self>,
+        pipeline: &Arc<ComputePipeline>,
+        descriptor_set: Arc<DescriptorSet>,
+        group_counts: [u32; 3],
+        push_constants: T
+    ) -> Arc<PrimaryAutoCommandBuffer> {
+        let mut builder = AutoCommandBufferBuilder::primary(
+            self.command_allocator(),
+            self.queue().queue_family_index(),
+            CommandBufferUsage::OneTimeSubmit
+        ).expect("Failed to create command buffer builder");
+        builder.bind_pipeline_compute(pipeline.clone()).expect("Failed to bind compute pipeline");
+        builder
+            .bind_descriptor_sets(
+                PipelineBindPoint::Compute,
+                pipeline.layout().clone(),
+                0,
+                descriptor_set
+            )
+            .expect("Failed to bind descriptor set");
+        builder
+            .push_constants(pipeline.layout().clone(), 0, push_constants)
+            .expect("Failed to push constants {i}:{v}");
+
+        unsafe {
+            builder.dispatch(group_counts).expect("Failed to dispatch");
+        }
+
+        builder.build().expect("Failed to build command buffer")
+    }
+
     pub fn execution_wait(self: &Arc<Self>, command_buffer: Arc<PrimaryAutoCommandBuffer>) {
         let future = command_buffer
             .execute(self.queue())

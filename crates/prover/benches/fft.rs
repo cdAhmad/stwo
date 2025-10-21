@@ -18,7 +18,7 @@ use stwo_prover::core::poly::circle::CanonicCoset;
 pub fn simd_ifft(c: &mut Criterion) {
     let mut group = c.benchmark_group("iffts");
 
-    for log_size in 16..=28 {
+    for log_size in 15..=28 {
         let domain = CanonicCoset::new(log_size).circle_domain();
         let twiddle_dbls = get_itwiddle_dbls(domain.half_coset);
         let twiddle_dbls_refs = twiddle_dbls.iter().map(|x| x.as_slice()).collect_vec();
@@ -39,7 +39,8 @@ pub fn simd_ifft(c: &mut Criterion) {
         });
     }
 }
-
+ 
+ 
 pub fn simd_ifft_parts(c: &mut Criterion) {
     const LOG_SIZE: u32 = 14;
 

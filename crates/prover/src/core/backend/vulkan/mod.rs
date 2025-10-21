@@ -2,7 +2,7 @@ use serde::{ Deserialize, Serialize };
 
 mod accumulation;
 mod shaders;
-mod column;
+pub mod column;
 mod quotients;
 use std::{ fmt::Debug, sync::Arc };
 

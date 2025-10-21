@@ -14,6 +14,7 @@ use vulkano::{
         DescriptorSet,
         WriteDescriptorSet,
     },
+    device::{ DeviceFeatures },
     memory::allocator::{ AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator },
     pipeline::{
         compute::ComputePipelineCreateInfo,
@@ -37,6 +38,7 @@ pub const PIPELINE_ACCUMULATE: &str = "accumulate";
 pub const PIPELINE_BIT_REVERSE: &str = "bit_reverse";
 pub const PIPELINE_BATCH_INVERSE: &str = "batch_inverse";
 pub const PIPELINE_IFFT: &str = "ifft";
+pub const PIPELINE_NORMALIZE: &str = "normalize";
 pub struct GpuContext {
     device: Arc<vulkano::device::Device>,
     queue: Arc<vulkano::device::Queue>,
@@ -48,7 +50,23 @@ pub struct GpuContext {
 const DISPATCH_SIZE: usize = 256;
 impl GpuContext {
     pub fn new() -> Arc<Self> {
-        let vulkano_context = VulkanoContext::new(Default::default());
+        // let library = VulkanLibrary::new().expect("not find liubrary");
+        // let instance = Instance::new(library, InstanceCreateInfo::default()).expect("not instance");
+        // let physical_device = instance.enumerate_physical_devices().unwrap().next().unwrap();
+        let vulkano_context = VulkanoContext::new(vulkano_util::context::VulkanoConfig {
+            device_features: DeviceFeatures {
+                shader_int64: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        // let device = Device::new(physical_device, DeviceCreateInfo {
+        //     enabled_features: vulkano::device::DeviceFeatures {
+        //         shader_int64: true,
+        //         ..Default::default()
+        //     },
+        //     ..Default::default()
+        // }).expect("et");
         let device = vulkano_context.device().clone();
         let queue = vulkano_context.graphics_queue().clone();
         let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
@@ -78,6 +96,10 @@ impl GpuContext {
         pipelines.insert(
             PIPELINE_IFFT,
             Self::create_pipeline(&device, shaders::ifft::load(device.clone()))
+        );
+        pipelines.insert(
+            PIPELINE_NORMALIZE,
+            Self::create_pipeline(&device, shaders::normalize::load(device.clone()))
         );
         let a = Self {
             device,
@@ -212,7 +234,7 @@ impl GpuContext {
         builder.build().expect("Failed to build command buffer")
     }
 
-    pub fn command_buffer_constants<T:BufferContents>(
+    pub fn command_buffer_constants<T: BufferContents>(
         self: &Arc<Self>,
         pipeline: &Arc<ComputePipeline>,
         descriptor_set: Arc<DescriptorSet>,
@@ -261,8 +283,8 @@ pub static GPU_CONTEXT: OnceLock<Arc<GpuContext>> = OnceLock::new();
 #[cfg(test)]
 mod test {
     use vulkano::{
-        device::physical::PhysicalDeviceType,
-        instance::{ Instance, InstanceCreateInfo, InstanceExtensions },
+        device::{ physical::PhysicalDeviceType },
+        instance::{ Instance, InstanceCreateFlags, InstanceCreateInfo, InstanceExtensions },
         VulkanLibrary,
     };
 
@@ -288,5 +310,32 @@ mod test {
         // 1. 检查物理设备是否支持 shaderInt64
         let supported_features = physical_device.supported_features();
         println!("shaderInt64: {}", supported_features.shader_int64);
+    }
+
+    #[test]
+    fn test_with_instance() {
+        let lib = VulkanLibrary::new().expect("lib error");
+        let instance = Instance::new(lib, InstanceCreateInfo {
+            flags: InstanceCreateFlags::ENUMERATE_PORTABILITY,
+            ..Default::default()
+        }).expect("instance error");
+        let physical_device = instance
+            .enumerate_physical_devices()
+            .expect("devices error")
+            .next()
+            .expect("next error");
+        for family in physical_device.queue_family_properties() {
+            println!("Found a queue family with {:?} queue(s)", family.queue_count);
+        }
+        physical_device
+            .queue_family_properties()
+            .iter()
+            .enumerate()
+            .for_each(|(a, b)| {
+                println!("find compute {} {:?}", a, b);
+            });
+        if physical_device.supported_features().shader_int64 {
+            println!("supported_features().shader_int64");
+        }
     }
 }

@@ -49,12 +49,16 @@ pub fn metal_bit_rev(c: &mut Criterion) {
 pub fn vulkan_bit_rev(c: &mut Criterion) {
     use stwo_prover::core::backend::ColumnOps;
     use stwo_prover::core::backend::vulkan::VulkanBackend;
+    use stwo_prover::core::backend::vulkan::column::VulkanColumn;
     use stwo_prover::core::fields::m31::BaseField;
     let data = (0..SIZE).map(BaseField::from).collect_vec();
     c.bench_function(format!("vulkan bit_rev {}bit", LOG_SIZE).as_str(), |b| {
         b.iter_batched(
             || data.clone(),
-            |mut data| <VulkanBackend as ColumnOps<BaseField>>::bit_reverse_column(&mut data),
+            |  data|
+                <VulkanBackend as ColumnOps<BaseField>>::bit_reverse_column(
+                    &mut (VulkanColumn { data: data })
+                ),
             BatchSize::LargeInput
         );
     });

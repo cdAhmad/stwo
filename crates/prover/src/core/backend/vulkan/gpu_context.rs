@@ -38,6 +38,7 @@ pub const PIPELINE_ACCUMULATE: &str = "accumulate";
 pub const PIPELINE_BIT_REVERSE: &str = "bit_reverse";
 pub const PIPELINE_BATCH_INVERSE: &str = "batch_inverse";
 pub const PIPELINE_IFFT: &str = "ifft";
+pub const PIPELINE_FFT: &str = "fft";
 pub const PIPELINE_NORMALIZE: &str = "normalize";
 pub struct GpuContext {
     device: Arc<vulkano::device::Device>,
@@ -96,6 +97,10 @@ impl GpuContext {
         pipelines.insert(
             PIPELINE_IFFT,
             Self::create_pipeline(&device, shaders::ifft::load(device.clone()))
+        );
+          pipelines.insert(
+            PIPELINE_FFT,
+            Self::create_pipeline(&device, shaders::fft::load(device.clone()))
         );
         pipelines.insert(
             PIPELINE_NORMALIZE,

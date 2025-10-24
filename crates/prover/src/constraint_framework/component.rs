@@ -18,11 +18,13 @@ use super::{
     SimdDomainEvaluator,
     PREPROCESSED_TRACE_IDX,
 };
+use crate::constraint_framework::vulkan_domain::VulkanDomainEvaluator;
 use crate::core::air::accumulation::{ DomainEvaluationAccumulator, PointEvaluationAccumulator };
 use crate::core::air::{ Component, ComponentProver, Trace };
 use crate::core::backend::cpu::bit_reverse;
 use crate::core::backend::simd::SimdBackend;
-use crate::core::backend::simd;
+use crate::core::backend::{ simd, CpuBackend };
+use crate::core::backend::vulkan::VulkanBackend;
 use crate::core::circle::CirclePoint;
 use crate::core::constraints::coset_vanishing;
 use crate::core::fields::m31::BaseField;
@@ -419,7 +421,7 @@ impl<E: FrameworkEval + Sync> ComponentProver<SimdBackend> for FrameworkComponen
         });
     }
 }
- 
+
 impl<E: FrameworkEval> Deref for FrameworkComponent<E> {
     type Target = E;
 
@@ -445,5 +447,188 @@ impl<E: FrameworkEval> Display for FrameworkComponent<E> {
             writeln!(f, "\t Interaction {}: n_cols {}", j, n_cols)?;
         }
         Ok(())
+    }
+}
+
+impl<E: FrameworkEval + Sync> ComponentProver<CpuBackend> for FrameworkComponent<E> {
+    fn evaluate_constraint_quotients_on_domain(
+        &self,
+        trace: &Trace<'_, CpuBackend>,
+        evaluation_accumulator: &mut DomainEvaluationAccumulator<CpuBackend>
+    ) {
+        if self.n_constraints() == 0 {
+            return;
+        }
+
+        let eval_domain = CanonicCoset::new(self.max_constraint_log_degree_bound()).circle_domain();
+        let trace_domain = CanonicCoset::new(self.eval.log_size());
+
+        let mut component_polys = trace.polys.sub_tree(&self.trace_locations);
+        component_polys[PREPROCESSED_TRACE_IDX] = self.preprocessed_column_indices
+            .iter()
+            .map(|idx| &trace.polys[PREPROCESSED_TRACE_IDX][*idx])
+            .collect();
+
+        let mut component_evals = trace.evals.sub_tree(&self.trace_locations);
+        component_evals[PREPROCESSED_TRACE_IDX] = self.preprocessed_column_indices
+            .iter()
+            .map(|idx| &trace.evals[PREPROCESSED_TRACE_IDX][*idx])
+            .collect();
+
+        // Extend trace if necessary.
+        // TODO: Don't extend when eval_size < committed_size. Instead, pick a good
+        // subdomain. (For larger blowup factors).
+        let need_to_extend = component_evals
+            .iter()
+            .flatten()
+            .any(|c| c.domain != eval_domain);
+        let trace: TreeVec<
+            Vec<Cow<'_, CircleEvaluation<CpuBackend, BaseField, BitReversedOrder>>>
+        > = if need_to_extend {
+            let _span = span!(Level::INFO, "Extension").entered();
+            let twiddles = CpuBackend::precompute_twiddles(eval_domain.half_coset);
+            component_polys
+                .as_cols_ref()
+                .map_cols(|col| Cow::Owned(col.evaluate_with_twiddles(eval_domain, &twiddles)))
+        } else {
+            component_evals.clone().map_cols(|c| Cow::Borrowed(*c))
+        };
+
+        // Denom inverses.
+        let log_expand = eval_domain.log_size() - trace_domain.log_size();
+        let mut denom_inv = (0..1 << log_expand)
+            .map(|i| coset_vanishing(trace_domain.coset(), eval_domain.at(i)).inverse())
+            .collect_vec();
+        bit_reverse(&mut denom_inv);
+
+        // Accumulator.
+        let [mut accum] = evaluation_accumulator.columns([
+            (eval_domain.log_size(), self.n_constraints()),
+        ]);
+        accum.random_coeff_powers.reverse();
+
+        let _span = span!(Level::INFO, "Constraint point-wise eval").entered();
+
+        // if trace_domain.log_size() < LOG_N_LANES + LOG_N_VERY_PACKED_ELEMS {
+        // Fall back to CPU if the trace is too small.
+        let mut col = accum.col.to_cpu();
+        // use crate::core::backend::Column;
+        for row in 0..1 << eval_domain.log_size() {
+            let trace_cols = trace.as_cols_ref().map_cols(|cow| {
+                match cow {
+                    Cow::Borrowed(borrowed) => *borrowed,
+                    Cow::Owned(owned) => owned,
+                }
+            });
+            // let trace_cols = trace_cols.as_cols_ref();
+
+            // Evaluate constrains at row.
+            let eval = CpuDomainEvaluator::new(
+                &trace_cols,
+                row,
+                &accum.random_coeff_powers,
+                trace_domain.log_size(),
+                eval_domain.log_size(),
+                self.eval.log_size(),
+                self.claimed_sum
+            );
+            let row_res = self.eval.evaluate(eval).row_res;
+
+            // Finalize row.
+            let denom_inv = denom_inv[row >> trace_domain.log_size()];
+            col.set(row, col.at(row) + row_res * denom_inv);
+        }
+        *accum.col = col;
+        return;
+    }
+}
+
+impl<E: FrameworkEval + Sync> ComponentProver<VulkanBackend> for FrameworkComponent<E> {
+    fn evaluate_constraint_quotients_on_domain(
+        &self,
+        trace: &Trace<'_, VulkanBackend>,
+        evaluation_accumulator: &mut DomainEvaluationAccumulator<VulkanBackend>
+    ) {
+        if self.n_constraints() == 0 {
+            return;
+        }
+        let eval_domain = CanonicCoset::new(self.max_constraint_log_degree_bound()).circle_domain();
+        let trace_domain = CanonicCoset::new(self.eval.log_size());
+
+        let mut component_polys = trace.polys.sub_tree(&self.trace_locations);
+        component_polys[PREPROCESSED_TRACE_IDX] = self.preprocessed_column_indices
+            .iter()
+            .map(|idx| &trace.polys[PREPROCESSED_TRACE_IDX][*idx])
+            .collect();
+
+        let mut component_evals = trace.evals.sub_tree(&self.trace_locations);
+        component_evals[PREPROCESSED_TRACE_IDX] = self.preprocessed_column_indices
+            .iter()
+            .map(|idx| &trace.evals[PREPROCESSED_TRACE_IDX][*idx])
+            .collect();
+
+        // Extend trace if necessary.
+        // TODO: Don't extend when eval_size < committed_size. Instead, pick a good
+        // subdomain. (For larger blowup factors).
+        let need_to_extend = component_evals
+            .iter()
+            .flatten()
+            .any(|c| c.domain != eval_domain);
+        let trace: TreeVec<
+            Vec<Cow<'_, CircleEvaluation<VulkanBackend, BaseField, BitReversedOrder>>>
+        > = if need_to_extend {
+            let _span = span!(Level::INFO, "Extension").entered();
+            let twiddles = VulkanBackend::precompute_twiddles(eval_domain.half_coset);
+            component_polys
+                .as_cols_ref()
+                .map_cols(|col| Cow::Owned(col.evaluate_with_twiddles(eval_domain, &twiddles)))
+        } else {
+            component_evals.clone().map_cols(|c| Cow::Borrowed(*c))
+        };
+
+        // Denom inverses.
+        let log_expand = eval_domain.log_size() - trace_domain.log_size();
+        let mut denom_inv = (0..1 << log_expand)
+            .map(|i| coset_vanishing(trace_domain.coset(), eval_domain.at(i)).inverse())
+            .collect_vec();
+        bit_reverse(&mut denom_inv);
+
+        // Accumulator.
+        let [mut accum] = evaluation_accumulator.columns([
+            (eval_domain.log_size(), self.n_constraints()),
+        ]);
+        accum.random_coeff_powers.reverse();
+
+        let _span = span!(Level::INFO, "Constraint point-wise eval").entered();
+
+        // if trace_domain.log_size() < LOG_N_LANES + LOG_N_VERY_PACKED_ELEMS {
+        // Fall back to CPU if the trace is too small.
+        // use crate::core::backend::Column;
+        for row in 0..1 << eval_domain.log_size() {
+            let trace_cols = trace.as_cols_ref().map_cols(|cow| {
+                match cow {
+                    Cow::Borrowed(borrowed) => *borrowed,
+                    Cow::Owned(owned) => owned,
+                }
+            });
+            // let trace_cols = trace_cols.as_cols_ref();
+
+            // Evaluate constrains at row.
+            let eval = VulkanDomainEvaluator::new(
+                &trace_cols,
+                row,
+                &accum.random_coeff_powers,
+                trace_domain.log_size(),
+                eval_domain.log_size(),
+                self.eval.log_size(),
+                self.claimed_sum
+            );
+            let row_res = self.eval.evaluate(eval).row_res;
+
+            // Finalize row.
+            let denom_inv = denom_inv[row >> trace_domain.log_size()];
+            accum.col.set(row, accum.col.at(row) + row_res * denom_inv);
+        }
+        return;
     }
 }

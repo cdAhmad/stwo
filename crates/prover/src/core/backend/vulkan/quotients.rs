@@ -1,19 +1,35 @@
+use itertools::Itertools;
+
 use crate::core::{
-    backend::vulkan::VulkanBackend,
-    fields::{ m31::BaseField, qm31::SecureField },
+    backend::{cpu::quotients::{accumulate_row_quotients, quotient_constants}, vulkan::VulkanBackend},
+    fields::{ m31::BaseField, qm31::SecureField, secure_column::SecureColumnByCoords },
     pcs::quotients::{ ColumnSampleBatch, QuotientOps },
-    poly::{ circle::{ CircleDomain, CircleEvaluation, SecureEvaluation }, BitReversedOrder },
+    poly::{ circle::{ CircleDomain, CircleEvaluation, SecureEvaluation }, BitReversedOrder }, utils::bit_reverse_index,
 };
 
 impl QuotientOps for VulkanBackend {
     fn accumulate_quotients(
-        _domain: CircleDomain,
-        _columns: &[&CircleEvaluation<Self, BaseField, BitReversedOrder>],
-        _random_coeff: SecureField,
-        _sample_batches: &[ColumnSampleBatch],
+        domain: CircleDomain,
+        columns: &[&CircleEvaluation<Self, BaseField, BitReversedOrder>],
+        random_coeff: SecureField,
+        sample_batches: &[ColumnSampleBatch],
         _log_blowup_factor: u32
     ) -> SecureEvaluation<Self, BitReversedOrder> {
-        todo!()
+          let mut values =   SecureColumnByCoords::zeros(domain.size()) ;
+        let quotient_constants = quotient_constants(sample_batches, random_coeff);
+
+        for row in 0..domain.size() {
+            let domain_point = domain.at(bit_reverse_index(row, domain.log_size()));
+            let query_values_at_row = columns.iter().map(|col| col.data[row]).collect_vec();
+            let row_value = accumulate_row_quotients(
+                sample_batches,
+                &query_values_at_row,
+                &quotient_constants,
+                domain_point,
+            );
+            values.set(row, row_value);
+        }
+        SecureEvaluation::new(domain, values)
     }
 }
 

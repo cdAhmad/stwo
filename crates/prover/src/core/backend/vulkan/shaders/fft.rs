@@ -44,14 +44,11 @@ uint fe_mul(uint a, uint b) {
     return min(r, r - 2147483647u);  // GLSL的min是硬件加速的
 }
 
-// --- 逆蝴蝶操作 ---
-void butterfly_inv(inout uint a, inout uint b, uint t) {
-    uint sum = fe_add(a, b);
-    uint diff = fe_sub(a, b);
-    a=sum;
-    b = fe_mul(diff, t);
+void butterfly(inout uint v0, inout uint v1, uint twid) {
+    uint tmp = fe_mul(v1, twid);
+    v1 = fe_sub(v0, tmp);
+    v0 = fe_add(v0, tmp);
 }
-
 void main() {
     uint gid = gl_GlobalInvocationID.x;
     uint step = 1u << pc.log_n;
@@ -67,7 +64,7 @@ void main() {
 
         uint a = values_buf.values[idx0];
         uint b = values_buf.values[idx1];
-        butterfly_inv(a, b, t);
+        butterfly(a, b, t);
         values_buf.values[idx0] = a;
         values_buf.values[idx1] = b;
 }

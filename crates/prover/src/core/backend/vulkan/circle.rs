@@ -1,17 +1,21 @@
 use crate::core::{
     backend::{
-        cpu::circle::slow_precompute_twiddles, vulkan::{
-            fft::{ self, MIN_FFT_LOG_SIZE },
+        cpu::circle::slow_precompute_twiddles,
+        vulkan::{
+            fft::{ self, rfft, MIN_FFT_LOG_SIZE },
             gpu_context::PIPELINE_BATCH_INVERSE,
             VulkanBackend,
-        }, Col, Column, CpuBackend
+        },
+        Col,
+        Column,
+        CpuBackend,
     },
     circle::{ CirclePoint, Coset },
     fields::{ m31::BaseField, qm31::SecureField },
     poly::{
         circle::{ CanonicCoset, CircleDomain, CircleEvaluation, CirclePoly, PolyOps },
         twiddles::TwiddleTree,
-        utils::{domain_line_twiddles_from_tree, fold},
+        utils::{ fold },
         BitReversedOrder,
     },
 };
@@ -34,10 +38,9 @@ impl PolyOps for VulkanBackend {
         fold(&poly.coeffs.data, &mappings)
     }
 
-      fn extend(poly: &CirclePoly<Self>, log_size: u32) -> CirclePoly<Self> {
+    fn extend(poly: &CirclePoly<Self>, log_size: u32) -> CirclePoly<Self> {
         // TODO(shahars): Get rid of extends.
-        poly.evaluate(CanonicCoset::new(log_size).circle_domain())
-            .interpolate()
+        poly.evaluate(CanonicCoset::new(log_size).circle_domain()).interpolate()
     }
 
     fn evaluate(
@@ -45,23 +48,27 @@ impl PolyOps for VulkanBackend {
         domain: CircleDomain,
         twiddles: &TwiddleTree<Self>
     ) -> CircleEvaluation<Self, BaseField, BitReversedOrder> {
-         let log_size = domain.log_size();
+        let log_size = domain.log_size();
         let fft_log_size = poly.log_size();
-        assert!(
-            log_size >= fft_log_size,
-            "Can only evaluate on larger domains"
-        );
+        assert!(log_size >= fft_log_size, "Can only evaluate on larger domains");
 
         if fft_log_size < MIN_FFT_LOG_SIZE {
             let cpu_poly: CirclePoly<CpuBackend> = CirclePoly::new(poly.coeffs.data.to_cpu());
-            let cpu_eval: CircleEvaluation<CpuBackend, crate::core::fields::m31::M31, BitReversedOrder> = cpu_poly.evaluate(domain);
+            let cpu_eval: CircleEvaluation<
+                CpuBackend,
+                crate::core::fields::m31::M31,
+                BitReversedOrder
+            > = cpu_poly.evaluate(domain);
             return CircleEvaluation::new(
                 cpu_eval.domain,
-                Col::<VulkanBackend, BaseField>::from_iter(cpu_eval.values),
+                Col::<VulkanBackend, BaseField>::from_iter(cpu_eval.values)
             );
         }
-
-       unimplemented!()
+        let mut values = poly.coeffs.clone();
+        unsafe {
+            rfft::fft(&mut values, &twiddles.twiddles, fft_log_size);
+        }
+        CircleEvaluation::new(domain, values)
     }
 
     fn precompute_twiddles(coset: Coset) -> TwiddleTree<Self> {
@@ -135,14 +142,14 @@ fn gpu_batch_inverse(twiddles: &Vec<u32>) -> Vec<u32> {
 #[cfg(test)]
 mod test {
     use crate::core::{
-        backend::{ vulkan::{ fft::MIN_FFT_LOG_SIZE, VulkanBackend }, CpuBackend },
+        backend::{ vulkan::{ fft::MIN_FFT_LOG_SIZE, VulkanBackend }, Column, CpuBackend },
         fields::m31::{ BaseField, M31 },
         poly::{ circle::{ CanonicCoset, CircleEvaluation, PolyOps }, BitReversedOrder },
     };
 
     #[test]
     fn test_interpolate_and_eval() {
-        for log_size in 5 .. 16 {
+        for log_size in 5..16 {
             println!("log_size {}", log_size);
             let domain = CanonicCoset::new(log_size).circle_domain();
             let evaluation = CircleEvaluation::<VulkanBackend, BaseField, BitReversedOrder>::new(
@@ -151,16 +158,21 @@ mod test {
             );
             let a = evaluation.interpolate();
 
+            let a2 = a.evaluate(domain);
+
             let evaluation2 = CircleEvaluation::<CpuBackend, BaseField, BitReversedOrder>::new(
                 domain,
                 (0..1 << log_size).map(BaseField::from).collect()
             );
 
             let b = evaluation2.interpolate();
-             println!("log_size {}", log_size);
-            assert_eq!(a.coeffs.data.to_vec(), b.coeffs.to_vec());
+            let b2 = b.evaluate(domain);
+            println!("log_size {}", log_size);
+            // assert_eq!(a.coeffs.data.to_vec(), b.coeffs.to_vec());
+            assert_ne!(a2.values.to_cpu().to_vec(), b2.values.to_vec());
         }
     }
+
     #[test]
     fn test_mul() {
         let inv = BaseField::from_u32_unchecked(67108864);

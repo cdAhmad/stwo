@@ -1,7 +1,7 @@
 use crate::core::{
-    backend::{ vulkan::VulkanBackend },
+    backend::vulkan::VulkanBackend,
     fields::qm31::SecureField,
-    fri::FriOps,
+    fri::{ fold_circle_into_line, FriOps },
     poly::{
         circle::SecureEvaluation,
         line::LineEvaluation,
@@ -13,12 +13,10 @@ use crate::core::{
 impl FriOps for VulkanBackend {
     fn fold_line(
         _eval: &LineEvaluation<Self>,
-       _alpha: SecureField,
+        _alpha: SecureField,
         _twiddles: &TwiddleTree<Self>
     ) -> LineEvaluation<Self> {
         todo!()
-
-
     }
 
     fn fold_circle_into_line(

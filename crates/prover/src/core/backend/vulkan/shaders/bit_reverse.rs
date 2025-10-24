@@ -15,13 +15,17 @@ layout(set = 0, binding = 0) buffer Data {
 layout(push_constant) uniform Params {
     uint log_n;
 } pc;
+ const uint m1 = 0x55555555u;
+    const uint m2 = 0x33333333u; 
+    const uint m3 = 0x0F0F0F0Fu;
+    const uint m4 = 0x00FF00FFu;
 
 // 高效位反转（展开）
 uint bit_reverse(uint x, uint bits) {
-    x = ((x & 0x55555555u) << 1) | ((x & 0xAAAAAAAAu) >> 1);
-    x = ((x & 0x33333333u) << 2) | ((x & 0xCCCCCCCCu) >> 2);
-    x = ((x & 0x0F0F0F0Fu) << 4) | ((x & 0xF0F0F0F0u) >> 4);
-    x = ((x & 0x00FF00FFu) << 8) | ((x & 0xFF00FF00u) >> 8);
+    x = ((x & m1) << 1) | ((x >> 1) & m1);
+    x = ((x & m2) << 2) | ((x >> 2) & m2);
+    x = ((x & m3) << 4) | ((x >> 4) & m3);
+    x = ((x & m4) << 8) | ((x >> 8) & m4);
     x = (x << 16) | (x >> 16);
     return x >> (32u - bits);
 }

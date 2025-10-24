@@ -53,7 +53,7 @@ pub unsafe fn ifft(values: &mut VulkanColumn, twiddle_dbl: &[u32], log_size: u32
             &pipeline,
             &[buffer.clone(), twiddle_buffer.clone()]
         );
-        let group_counts = context.group_counts(size);
+        let group_counts = context.group_counts(size/2);
         let command_buffer = context.command_buffer_constants(
             &pipeline,
             descriptor_set,

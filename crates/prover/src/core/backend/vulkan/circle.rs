@@ -1,18 +1,17 @@
 use crate::core::{
     backend::{
-        cpu::circle::slow_precompute_twiddles,
-        vulkan::{
+        cpu::circle::slow_precompute_twiddles, vulkan::{
             fft::{ self, MIN_FFT_LOG_SIZE },
             gpu_context::PIPELINE_BATCH_INVERSE,
             VulkanBackend,
-        },
+        }, Col, Column, CpuBackend
     },
     circle::{ CirclePoint, Coset },
     fields::{ m31::BaseField, qm31::SecureField },
     poly::{
-        circle::{ CircleDomain, CircleEvaluation, CirclePoly, PolyOps },
+        circle::{ CanonicCoset, CircleDomain, CircleEvaluation, CirclePoly, PolyOps },
         twiddles::TwiddleTree,
-        utils::fold,
+        utils::{domain_line_twiddles_from_tree, fold},
         BitReversedOrder,
     },
 };
@@ -35,16 +34,34 @@ impl PolyOps for VulkanBackend {
         fold(&poly.coeffs.data, &mappings)
     }
 
-    fn extend(_: &CirclePoly<Self>, _: u32) -> CirclePoly<Self> {
-        unimplemented!()
+      fn extend(poly: &CirclePoly<Self>, log_size: u32) -> CirclePoly<Self> {
+        // TODO(shahars): Get rid of extends.
+        poly.evaluate(CanonicCoset::new(log_size).circle_domain())
+            .interpolate()
     }
 
     fn evaluate(
-        _poly: &CirclePoly<Self>,
-        _domain: CircleDomain,
-        _twiddles: &TwiddleTree<Self>
+        poly: &CirclePoly<Self>,
+        domain: CircleDomain,
+        twiddles: &TwiddleTree<Self>
     ) -> CircleEvaluation<Self, BaseField, BitReversedOrder> {
-        unimplemented!()
+         let log_size = domain.log_size();
+        let fft_log_size = poly.log_size();
+        assert!(
+            log_size >= fft_log_size,
+            "Can only evaluate on larger domains"
+        );
+
+        if fft_log_size < MIN_FFT_LOG_SIZE {
+            let cpu_poly: CirclePoly<CpuBackend> = CirclePoly::new(poly.coeffs.data.to_cpu());
+            let cpu_eval: CircleEvaluation<CpuBackend, crate::core::fields::m31::M31, BitReversedOrder> = cpu_poly.evaluate(domain);
+            return CircleEvaluation::new(
+                cpu_eval.domain,
+                Col::<VulkanBackend, BaseField>::from_iter(cpu_eval.values),
+            );
+        }
+
+       unimplemented!()
     }
 
     fn precompute_twiddles(coset: Coset) -> TwiddleTree<Self> {
@@ -92,7 +109,6 @@ impl PolyOps for VulkanBackend {
             let cpu_poly = eval.to_cpu().interpolate();
             return CirclePoly::new(cpu_poly.coeffs.into_iter().collect());
         }
-
         let mut values = eval.values;
         unsafe {
             fft::ifft::ifft(&mut values, &twiddles.itwiddles, log_size);

@@ -316,3 +316,23 @@ impl FromIterator<SecureField> for SecureColumnByCoords<VulkanBackend> {
         SecureColumnByCoords { columns }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use itertools::Itertools;
+
+    use crate::core::{ backend::{ cpu::bit_reverse as cpu_bit_reverse, vulkan::{column::VulkanColumn, VulkanBackend}, ColumnOps }, fields::m31::BaseField };
+
+    #[test]
+    fn bit_reverse_large_column_works() {
+        const LOG_SIZE: u32 = 22;
+        let column = (0..1 << LOG_SIZE).map(BaseField::from).collect_vec();
+        let mut expected = column.clone();
+        cpu_bit_reverse(&mut expected);
+
+        let mut column = VulkanColumn { data: column.clone() };
+        <VulkanBackend as ColumnOps<BaseField>>::bit_reverse_column(&mut column);
+
+        assert_eq!(expected, column.data);
+    }
+}

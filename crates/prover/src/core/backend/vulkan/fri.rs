@@ -1,7 +1,7 @@
 use crate::core::{
     backend::vulkan::VulkanBackend,
     fields::qm31::SecureField,
-    fri::{ fold_circle_into_line, FriOps },
+    fri::{    FriOps },
     poly::{
         circle::SecureEvaluation,
         line::LineEvaluation,

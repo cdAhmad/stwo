@@ -271,6 +271,20 @@ impl SecureColumnByCoords<VulkanBackend> {
         assert_eq!(self.columns.len(), 4);
         (0..self.packed_len()).map(|i| unsafe { self.packed_at(i) }).collect()
     }
+    pub fn to_uvec4_vec(&self) -> Vec<u32> {
+        assert_eq!(self.columns.len(), 4);
+        let len = self.packed_len();
+
+        for col in &self.columns {
+            assert!(col.data.len() >= len);
+        }
+        let mut result = Vec::with_capacity(len * 4); // 预分配
+        for i in 0..len {
+            let v = unsafe { self.packed_at(i) };
+            result.extend_from_slice(&v); // 高效追加 [u32; 4]
+        }
+        result
+    }
     pub fn to_vec(&self) -> Vec<u32> {
         self.columns
             .iter()
@@ -288,6 +302,25 @@ impl SecureColumnByCoords<VulkanBackend> {
                 self.columns[1].data.get_unchecked_mut(i).0 = b;
                 self.columns[2].data.get_unchecked_mut(i).0 = c;
                 self.columns[3].data.get_unchecked_mut(i).0 = d;
+            }
+        }
+    }
+
+    pub fn copy_from_slice_vec4(&mut self, slice: &[u32], len: usize) {
+        // 确保有 4 列
+        assert_eq!(self.columns.len(), 4, "Expected exactly 4 columns");
+
+        // 确保输入 slice 足够长：至少 len * 4 个元素
+        assert!(slice.len() >= len * 4, "Slice too short for {} vec4s", len);
+
+        // 只取前 len 个 vec4 块
+        for (i, chunk) in slice.array_chunks().take(len).enumerate() {
+            let [a, b, c, d] = chunk;
+            unsafe {
+                self.columns[0].data.get_unchecked_mut(i).0 = *a;
+                self.columns[1].data.get_unchecked_mut(i).0 = *b;
+                self.columns[2].data.get_unchecked_mut(i).0 = *c;
+                self.columns[3].data.get_unchecked_mut(i).0 = *d;
             }
         }
     }
@@ -321,7 +354,14 @@ impl FromIterator<SecureField> for SecureColumnByCoords<VulkanBackend> {
 mod test {
     use itertools::Itertools;
 
-    use crate::core::{ backend::{ cpu::bit_reverse as cpu_bit_reverse, vulkan::{column::VulkanColumn, VulkanBackend}, ColumnOps }, fields::m31::BaseField };
+    use crate::core::{
+        backend::{
+            cpu::bit_reverse as cpu_bit_reverse,
+            vulkan::{ column::VulkanColumn, VulkanBackend },
+            ColumnOps,
+        },
+        fields::m31::BaseField,
+    };
 
     #[test]
     fn bit_reverse_large_column_works() {

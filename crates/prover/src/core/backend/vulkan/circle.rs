@@ -165,7 +165,6 @@ mod test {
     #[test]
     fn test_interpolate_and_eval() {
         for log_size in 5..16 {
-            println!("log_size {}", log_size);
             let domain = CanonicCoset::new(log_size).circle_domain();
             let evaluation = CircleEvaluation::<VulkanBackend, BaseField, BitReversedOrder>::new(
                 domain,
@@ -182,7 +181,6 @@ mod test {
 
             let b = evaluation2.interpolate();
             let b2 = b.evaluate(domain);
-            println!("log_size {}", log_size);
             // assert_eq!(a.coeffs.data.to_vec(), b.coeffs.to_vec());
             assert_ne!(a2.values.to_cpu().to_vec(), b2.values.to_vec());
         }

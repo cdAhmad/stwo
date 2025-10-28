@@ -70,9 +70,6 @@ impl FriOps for VulkanBackend {
         let alpha_sq = alpha_sq.to_m31_array().map(|M31(x)| x);
 
         let f=VulkanBackend::first_itwiddle_buffer(&twiddles.itwiddles);
-        
-
-     
         let values = src.values.to_uvec4_vec();
         let dst_values = dst.values.to_uvec4_vec();
         let context = VulkanBackend::gpu_context();
@@ -113,7 +110,7 @@ impl FriOps for VulkanBackend {
     fn decompose(
         _eval: &SecureEvaluation<Self, BitReversedOrder>
     ) -> (SecureEvaluation<Self, BitReversedOrder>, SecureField) {
-        todo!()
+        unimplemented!("Decompose is not implemented for VulkanBackend");
     }
 }
 

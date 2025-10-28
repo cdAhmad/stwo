@@ -44,6 +44,7 @@ pub fn prove<B: BackendForChannel<MC>, MC: MerkleChannel>(
     let span = span!(Level::INFO, "Composition").entered();
     let span1 = span!(Level::INFO, "Generation").entered();
     let composition_poly = component_provers.compute_composition_polynomial(random_coeff, &trace);
+    println!("compute_composition_polynomial");
     span1.exit();
 
     let mut tree_builder = commitment_scheme.tree_builder();
@@ -64,6 +65,7 @@ pub fn prove<B: BackendForChannel<MC>, MC: MerkleChannel>(
     let commitment_scheme_proof = commitment_scheme.prove_values(sample_points, channel);
     let proof = StarkProof(commitment_scheme_proof);
     info!(proof_size_estimate = proof.size_estimate());
+    println!("proof_size_estimate = {}", proof.size_estimate());
 
     // Evaluate composition polynomial at OODS point and check that it matches the trace OODS
     // values. This is a sanity check.

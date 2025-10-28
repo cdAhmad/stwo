@@ -336,13 +336,13 @@ mod tests {
                 },
                 SecureField::zero()
             );
-
+ println!("prove before");
             let proof = prove::<VulkanBackend, Blake2sMerkleChannel>(
                 &[&component],
                 prover_channel,
                 commitment_scheme
             ).unwrap();
-
+ println!("prove end");
             // Verify.
             let verifier_channel = &mut Blake2sChannel::default();
             let commitment_scheme = &mut CommitmentSchemeVerifier::<Blake2sMerkleChannel>::new(
@@ -351,6 +351,7 @@ mod tests {
 
             // Retrieve the expected column sizes in each commitment interaction, from the AIR.
             let sizes = component.trace_log_degree_bounds();
+           
             commitment_scheme.commit(proof.commitments[0], &sizes[0], verifier_channel);
             commitment_scheme.commit(proof.commitments[1], &sizes[1], verifier_channel);
             verify(&[&component], verifier_channel, commitment_scheme, proof).unwrap();

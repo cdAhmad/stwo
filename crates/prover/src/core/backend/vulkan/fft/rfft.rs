@@ -75,10 +75,10 @@ pub unsafe fn fft(values: &mut VulkanColumn, twiddle_dbl: &[u32], log_size: u32)
     );
     context.execution_wait(command_buffer);
 
-    // let mapped = buffer.read().expect("Failed to read buffer");
-    // unsafe {
-    //     std::ptr::copy_nonoverlapping(mapped.as_ptr(), values.data.as_mut_ptr() as *mut u32, size);
-    // }
+    let mapped = buffer.read().expect("Failed to read buffer");
+    unsafe {
+        std::ptr::copy_nonoverlapping(mapped.as_ptr(), values.data.as_mut_ptr() as *mut u32, size);
+    }
 }
 #[cfg(test)]
 mod test {

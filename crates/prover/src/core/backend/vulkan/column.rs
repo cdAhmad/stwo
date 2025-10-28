@@ -285,11 +285,22 @@ impl SecureColumnByCoords<VulkanBackend> {
         }
         result
     }
-    pub fn to_vec(&self) -> Vec<u32> {
+    pub fn to_vec_u32(&self) -> Vec<u32> {
         self.columns
             .iter()
             .flat_map(|c| c.data.iter().map(|f| f.0))
             .collect()
+    }
+    pub fn to_vec(&self) -> Vec<SecureField> {
+        (0..self.len()).map( |i| {
+            SecureField::from_u32_unchecked(
+                self.columns[0].data[i].0,
+                self.columns[1].data[i].0,
+                self.columns[2].data[i].0,
+                self.columns[3].data[i].0,
+            )
+
+        }).collect()
     }
 
     pub fn copy_from_slice(&mut self, slice: &[[u32; 4]]) {

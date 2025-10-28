@@ -1,4 +1,3 @@
-use itertools::Itertools;
 
 use crate::core::{
     backend::vulkan::{
@@ -22,11 +21,7 @@ pub unsafe fn ifft(values: &mut VulkanColumn, twiddle_dbl: &[u32], log_size: u32
     let buffer = context.buffer_in_out(u32_slice);
     let mut twiddle_buffer = Vec::new();
 
-    let first_twiddle_buffer = twiddle_dbl[..twiddles_size / 2]
-        .iter()
-        .array_chunks()
-        .flat_map(|[&x, &y]| [y, (-M31(y)).0, (-M31(x)).0, x])
-        .collect_vec();
+    let first_twiddle_buffer = VulkanBackend::first_itwiddle_buffer(&twiddle_dbl);
     twiddle_buffer.extend(first_twiddle_buffer);
     //   let inv = BaseField::from_u32_unchecked(eval.domain.size() as u32).inverse();
     let inv_n = M31(size as u32).inverse().0;

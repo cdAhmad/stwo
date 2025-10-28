@@ -1,3 +1,5 @@
+use itertools::Itertools;
+
 use crate::core::{
     backend::{
         cpu::circle::slow_precompute_twiddles,
@@ -11,11 +13,11 @@ use crate::core::{
         CpuBackend,
     },
     circle::{ CirclePoint, Coset },
-    fields::{ m31::BaseField, qm31::SecureField },
+    fields::{ m31::{ BaseField, M31 }, qm31::SecureField },
     poly::{
         circle::{ CanonicCoset, CircleDomain, CircleEvaluation, CirclePoly, PolyOps },
         twiddles::TwiddleTree,
-        utils::{ fold },
+        utils::fold,
         BitReversedOrder,
     },
 };
@@ -123,6 +125,19 @@ impl PolyOps for VulkanBackend {
         CirclePoly::new(values)
     }
 }
+
+impl VulkanBackend {
+    pub fn first_itwiddle_buffer(itwiddles: &[u32]) -> Vec<u32> {
+        let twiddles_size = itwiddles.len();
+        let first_twiddle_buffer = itwiddles[..twiddles_size / 2]
+            .iter()
+            .array_chunks()
+            .flat_map(|[&x, &y]| [y, (-M31(y)).0, (-M31(x)).0, x])
+            .collect_vec();
+        first_twiddle_buffer
+    }
+}
+
 fn gpu_batch_inverse(twiddles: &Vec<u32>) -> Vec<u32> {
     let context = VulkanBackend::gpu_context();
     let len = twiddles.len();

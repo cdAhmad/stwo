@@ -41,6 +41,7 @@ pub const PIPELINE_IFFT: &str = "ifft";
 pub const PIPELINE_FFT: &str = "fft";
 pub const PIPELINE_NORMALIZE: &str = "normalize";
 pub const PIPELINE_FRI_FOLD_LINE: &str = "fri_fold_line";
+pub const PIPELINE_FRI_FOLD_CIRCLE_INTO_LINE: &str = "fri_fold_circle_into_line";
 pub struct GpuContext {
     device: Arc<vulkano::device::Device>,
     queue: Arc<vulkano::device::Queue>,
@@ -99,7 +100,7 @@ impl GpuContext {
             PIPELINE_IFFT,
             Self::create_pipeline(&device, shaders::ifft::load(device.clone()))
         );
-          pipelines.insert(
+        pipelines.insert(
             PIPELINE_FFT,
             Self::create_pipeline(&device, shaders::fft::load(device.clone()))
         );
@@ -107,9 +108,13 @@ impl GpuContext {
             PIPELINE_NORMALIZE,
             Self::create_pipeline(&device, shaders::normalize::load(device.clone()))
         );
-   pipelines.insert(
+        pipelines.insert(
             PIPELINE_FRI_FOLD_LINE,
             Self::create_pipeline(&device, shaders::fri_fold_line::load(device.clone()))
+        );
+        pipelines.insert(
+            PIPELINE_FRI_FOLD_CIRCLE_INTO_LINE,
+            Self::create_pipeline(&device, shaders::fri_fold_circle_into_line::load(device.clone()))
         );
 
         let a = Self {

@@ -30,9 +30,7 @@ impl ColumnOps<BaseField> for VulkanBackend {
 
         let context = Self::gpu_context();
 
-        let u32_slice = unsafe {
-            std::slice::from_raw_parts_mut(column.data.as_mut_ptr() as *mut u32, n)
-        };
+        let u32_slice: &mut [u32] = bytemuck::cast_slice_mut(&mut column.data);
 
         let buffer = context.buffer_in_out(u32_slice);
         let pipeline = context.pipeline(PIPELINE_BIT_REVERSE);
@@ -48,9 +46,10 @@ impl ColumnOps<BaseField> for VulkanBackend {
         );
         context.execution_wait(command_buffer);
         let mapped = buffer.read().expect("Failed to read buffer");
-        unsafe {
-            std::ptr::copy_nonoverlapping(mapped.as_ptr(), column.data.as_mut_ptr() as *mut u32, n);
-        }
+        u32_slice.copy_from_slice(mapped.as_ref());
+        // unsafe {
+        //     std::ptr::copy_nonoverlapping(mapped.as_ptr(), column.data.as_mut_ptr() as *mut u32, n);
+        // }
     }
 }
 

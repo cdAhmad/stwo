@@ -33,19 +33,7 @@ pub fn simd_bit_rev(c: &mut Criterion) {
     });
 }
 
-pub fn metal_bit_rev(c: &mut Criterion) {
-    use stwo_prover::core::backend::ColumnOps;
-    use stwo_prover::core::backend::metal::MetalBackend;
-    use stwo_prover::core::fields::m31::BaseField;
-    let data = (0..SIZE).map(BaseField::from).collect_vec();
-    c.bench_function(format!("metal bit_rev {}bit", LOG_SIZE).as_str(), |b| {
-        b.iter_batched(
-            || data.clone(),
-            |mut data| MetalBackend::bit_reverse_column(&mut data),
-            BatchSize::LargeInput
-        );
-    });
-}
+ 
 pub fn vulkan_bit_rev(c: &mut Criterion) {
     use stwo_prover::core::backend::ColumnOps;
     use stwo_prover::core::backend::vulkan::VulkanBackend;
@@ -67,5 +55,5 @@ pub fn vulkan_bit_rev(c: &mut Criterion) {
 criterion_group!(
     name = bit_rev;
     config = Criterion::default().sample_size(10);
-    targets = simd_bit_rev, cpu_bit_rev,metal_bit_rev,vulkan_bit_rev);
+    targets = simd_bit_rev, cpu_bit_rev,vulkan_bit_rev);
 criterion_main!(bit_rev);

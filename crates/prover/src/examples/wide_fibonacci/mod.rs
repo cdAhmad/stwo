@@ -281,15 +281,7 @@ mod tests {
     fn generate_test_trace_vulkan(
         log_n_instances: u32
     ) -> ColumnVec<CircleEvaluation<VulkanBackend, BaseField, BitReversedOrder>> {
-        if log_n_instances < LOG_N_LANES {
-            let n_instances = 1 << log_n_instances;
-            let inputs = vec![FibInputVulkan {
-                  a: BaseField::one(),
-                b: BaseField::from_u32_unchecked(n_instances),
-            }];
-            return generate_trace_vulkan::<FIB_SEQUENCE_LENGTH>(log_n_instances, &inputs);
-        }
-        let inputs = (0..1 << (log_n_instances - LOG_N_LANES))
+        let inputs = (0..1 << (log_n_instances-2))
             .map(|i| FibInputVulkan {
                 a: BaseField::one(),
                 b: BaseField::from_u32_unchecked(i),
@@ -301,7 +293,8 @@ mod tests {
  
  #[test]
     fn test_wide_fib_prove_with_blake_vulkano() {
-        for log_n_instances in 2..=16 {
+        for log_n_instances in 14..=16 {
+            println!("test_wide_fib_prove_with_blake_vulkano log_n_instances={}", log_n_instances);
             let config = PcsConfig::default();
             // Precompute twiddles.
             let twiddles = VulkanBackend::precompute_twiddles(

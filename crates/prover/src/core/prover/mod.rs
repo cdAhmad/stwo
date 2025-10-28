@@ -60,7 +60,7 @@ pub fn prove<B: BackendForChannel<MC>, MC: MerkleChannel>(
 
     // Add the composition polynomial mask points.
     sample_points.push(vec![vec![oods_point]; SECURE_EXTENSION_DEGREE]);
-
+ println!("prove_values");
     // Prove the trace and composition OODS values, and retrieve them.
     let commitment_scheme_proof = commitment_scheme.prove_values(sample_points, channel);
     let proof = StarkProof(commitment_scheme_proof);

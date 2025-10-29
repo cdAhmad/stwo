@@ -281,7 +281,7 @@ mod tests {
     fn generate_test_trace_vulkan(
         log_n_instances: u32
     ) -> ColumnVec<CircleEvaluation<VulkanBackend, BaseField, BitReversedOrder>> {
-        let inputs = (0..1 << (log_n_instances-2))
+        let inputs = (0..1 << (log_n_instances))
             .map(|i| FibInputVulkan {
                 a: BaseField::one(),
                 b: BaseField::from_u32_unchecked(i),
@@ -312,11 +312,13 @@ mod tests {
 
             // Preprocessed trace
             let mut tree_builder = commitment_scheme.tree_builder();
+      
             tree_builder.extend_evals([]);
             tree_builder.commit(prover_channel);
 
             // Trace.
             let trace = generate_test_trace_vulkan(log_n_instances);
+                  println!("trace {}",trace.len());
             let mut tree_builder = commitment_scheme.tree_builder();
             tree_builder.extend_evals(trace);
             tree_builder.commit(prover_channel);

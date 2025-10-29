@@ -1,24 +1,26 @@
 use itertools::Itertools;
+use num_traits::Zero;
 
 use crate::core::{
     backend::{
-        cpu::circle::slow_precompute_twiddles,
-        vulkan::{
-            fft::{ self, rfft, MIN_FFT_LOG_SIZE },
-            gpu_context::PIPELINE_BATCH_INVERSE,
-            VulkanBackend,
-        },
         Col,
         Column,
         CpuBackend,
+        cpu::circle::slow_precompute_twiddles,
+        vulkan::{
+            VulkanBackend,
+            column::VulkanColumn,
+            fft::{ self, MIN_FFT_LOG_SIZE, rfft },
+            gpu_context::PIPELINE_BATCH_INVERSE,
+        },
     },
     circle::{ CirclePoint, Coset },
     fields::{ m31::{ BaseField, M31 }, qm31::SecureField },
     poly::{
-        circle::{ CanonicCoset, CircleDomain, CircleEvaluation, CirclePoly, PolyOps },
+        BitReversedOrder,
+        circle::{ CircleDomain, CircleEvaluation, CirclePoly, PolyOps },
         twiddles::TwiddleTree,
         utils::fold,
-        BitReversedOrder,
     },
 };
 impl PolyOps for VulkanBackend {
@@ -42,7 +44,11 @@ impl PolyOps for VulkanBackend {
 
     fn extend(poly: &CirclePoly<Self>, log_size: u32) -> CirclePoly<Self> {
         // TODO(shahars): Get rid of extends.
-        poly.evaluate(CanonicCoset::new(log_size).circle_domain()).interpolate()
+        assert!(log_size >= poly.log_size());
+        let mut coeffs = Vec::with_capacity(1 << log_size);
+        coeffs.extend_from_slice(&poly.coeffs.data);
+        coeffs.resize(1 << log_size, BaseField::zero());
+        CirclePoly::new(VulkanColumn { data: coeffs })
     }
 
     fn evaluate(
@@ -66,7 +72,7 @@ impl PolyOps for VulkanBackend {
                 Col::<VulkanBackend, BaseField>::from_iter(cpu_eval.values)
             );
         }
-        let mut values = poly.coeffs.clone();
+        let mut values =poly.extend(domain.log_size()).coeffs;
         unsafe {
             rfft::fft(&mut values, &twiddles.twiddles, fft_log_size);
         }

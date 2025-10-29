@@ -15,6 +15,8 @@ impl QuotientOps for VulkanBackend {
         sample_batches: &[ColumnSampleBatch],
         _log_blowup_factor: u32
     ) -> SecureEvaluation<Self, BitReversedOrder> {
+
+
           let mut values =   SecureColumnByCoords::zeros(domain.size()) ;
         let quotient_constants = quotient_constants(sample_batches, random_coeff);
 

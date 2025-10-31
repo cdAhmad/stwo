@@ -598,7 +598,6 @@ impl<E: FrameworkEval + Sync> ComponentProver<VulkanBackend> for FrameworkCompon
             (eval_domain.log_size(), self.n_constraints()),
         ]);
         accum.random_coeff_powers.reverse();
-        println!("Vulkan FrameworkComponent evaluate_constraint_quotients_on_domain");
 
         let _span = span!(Level::INFO, "Constraint point-wise eval").entered();
 
@@ -606,7 +605,6 @@ impl<E: FrameworkEval + Sync> ComponentProver<VulkanBackend> for FrameworkCompon
         // Fall back to CPU if the trace is too small.
         // use crate::core::backend::Column;
         for row in 0..1 << eval_domain.log_size() {
-            println!("Vulkan FrameworkComponent evaluate_constraint_quotients_on_domain for {}",row);
             let trace_cols = trace.as_cols_ref().map_cols(|cow| {
                 match cow {
                     Cow::Borrowed(borrowed) => *borrowed,
@@ -630,7 +628,6 @@ impl<E: FrameworkEval + Sync> ComponentProver<VulkanBackend> for FrameworkCompon
             // Finalize row.
             let denom_inv = denom_inv[row >> trace_domain.log_size()];
             accum.col.set(row, accum.col.at(row) + row_res * denom_inv);
-            println!("Vulkan FrameworkComponent evaluate_constraint_quotients_on_domain for {} end",row);
         }
         return;
     }

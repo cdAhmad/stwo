@@ -60,3 +60,6 @@ See [LICENSE](LICENSE) for more information.
 <!-- prettier-ignore-end -->
 
 <!-- ALL-CONTRIBUTORS-LIST:END -->
+
+
+ glslangValidator -V -S comp shader.comp

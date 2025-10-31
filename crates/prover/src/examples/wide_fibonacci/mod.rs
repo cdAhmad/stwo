@@ -3,7 +3,6 @@ use itertools::Itertools;
 use crate::constraint_framework::{ EvalAtRow, FrameworkComponent, FrameworkEval };
 use crate::core::backend::simd::m31::PackedBaseField;
 use crate::core::backend::simd::SimdBackend;
-use crate::core::backend::vulkan::VulkanBackend;
 use crate::core::backend::{ Col, Column };
 use crate::core::fields::m31::BaseField;
 use crate::core::fields::FieldExpOps;
@@ -18,10 +17,6 @@ pub struct FibInput {
     b: PackedBaseField,
 }
 
-pub struct FibInputVulkan {
-    a: BaseField,
-    b: BaseField,
-}
 /// A component that enforces the Fibonacci sequence.
 /// Each row contains a seperate Fibonacci sequence of length `N`.
 #[derive(Clone)]
@@ -75,33 +70,6 @@ pub fn generate_trace<const N: usize>(
         .collect_vec()
 }
 
-pub fn generate_trace_vulkan<const N: usize>(
-    log_size: u32,
-    inputs: &[FibInputVulkan]
-) -> ColumnVec<CircleEvaluation<VulkanBackend, BaseField, BitReversedOrder>> {
-    let mut trace = (0..N)
-        .map(|_| Col::<VulkanBackend, BaseField>::zeros(1 << log_size))
-        .collect_vec();
-    for (vec_index, input) in inputs.iter().enumerate() {
-        let mut a= input.a;
-        let mut b = input.b;
-        trace[0].data[vec_index] = a;
-        trace[1].data[vec_index] = b;
-        trace
-            .iter_mut()
-            .skip(2)
-            .for_each(|col| {
-                (a, b) = (b, a.square() + b.square());
-                col.data[vec_index] = b;
-            });
-    }
-    let domain = CanonicCoset::new(log_size).circle_domain();
-    trace
-        .into_iter()
-        .map(|eval| CircleEvaluation::<VulkanBackend, _, BitReversedOrder>::new(domain, eval))
-        .collect_vec()
-}
-
 #[cfg(test)]
 mod tests {
     use itertools::Itertools;
@@ -120,6 +88,7 @@ mod tests {
 
     use crate::core::backend::vulkan::VulkanBackend;
     use crate::core::backend::Column;
+    use crate::core::backend::vulkan::column::VulkanColumn;
     use crate::core::channel::Blake2sChannel;
     #[cfg(not(target_arch = "wasm32"))]
     use crate::core::channel::Poseidon252Channel;
@@ -133,7 +102,7 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     use crate::core::vcs::poseidon252_merkle::Poseidon252MerkleChannel;
     use crate::core::ColumnVec;
-    use crate::examples::wide_fibonacci::{ generate_trace, generate_trace_vulkan, FibInput, FibInputVulkan, WideFibonacciComponent };
+    use crate::examples::wide_fibonacci::{ generate_trace, FibInput, WideFibonacciComponent };
 
     const FIB_SEQUENCE_LENGTH: usize = 100;
 
@@ -170,7 +139,7 @@ mod tests {
             .collect_vec();
         generate_trace::<FIB_SEQUENCE_LENGTH>(log_n_instances, &inputs)
     }
-    
+
     fn fibonacci_constraint_evaluator<const N: u32>(eval: AssertEvaluator<'_>) {
         (WideFibonacciEval::<FIB_SEQUENCE_LENGTH> { log_n_rows: N }).evaluate(eval);
     }
@@ -275,23 +244,8 @@ mod tests {
             verify(&[&component], verifier_channel, commitment_scheme, proof).unwrap();
         }
     }
- 
- 
- 
-    fn generate_test_trace_vulkan(
-        log_n_instances: u32
-    ) -> ColumnVec<CircleEvaluation<VulkanBackend, BaseField, BitReversedOrder>> {
-        let inputs = (0..1 << (log_n_instances))
-            .map(|i| FibInputVulkan {
-                a: BaseField::one(),
-                b: BaseField::from_u32_unchecked(i),
-            })
-            .collect_vec();
-        generate_trace_vulkan::<FIB_SEQUENCE_LENGTH>(log_n_instances, &inputs)
-    }
-    
- 
- #[test]
+
+    #[test]
     fn test_wide_fib_prove_with_blake_vulkano() {
         for log_n_instances in 14..=16 {
             println!("test_wide_fib_prove_with_blake_vulkano log_n_instances={}", log_n_instances);
@@ -312,13 +266,20 @@ mod tests {
 
             // Preprocessed trace
             let mut tree_builder = commitment_scheme.tree_builder();
-      
+
             tree_builder.extend_evals([]);
             tree_builder.commit(prover_channel);
 
             // Trace.
-            let trace = generate_test_trace_vulkan(log_n_instances);
-                  println!("trace {}",trace.len());
+            let trace = generate_test_trace(log_n_instances)
+                .iter()
+                .map(|c| {
+                    let values = c.values.to_cpu();
+                    CircleEvaluation::new(c.domain, VulkanColumn { data: values })
+                })
+                .collect_vec();
+
+            println!("trace {}", trace.len());
             let mut tree_builder = commitment_scheme.tree_builder();
             tree_builder.extend_evals(trace);
             tree_builder.commit(prover_channel);
@@ -331,13 +292,14 @@ mod tests {
                 },
                 SecureField::zero()
             );
- println!("prove before");
+            println!("prove before");
+
             let proof = prove::<VulkanBackend, Blake2sMerkleChannel>(
                 &[&component],
                 prover_channel,
                 commitment_scheme
             ).unwrap();
- println!("prove end");
+            println!("prove end");
             // Verify.
             let verifier_channel = &mut Blake2sChannel::default();
             let commitment_scheme = &mut CommitmentSchemeVerifier::<Blake2sMerkleChannel>::new(
@@ -346,7 +308,7 @@ mod tests {
 
             // Retrieve the expected column sizes in each commitment interaction, from the AIR.
             let sizes = component.trace_log_degree_bounds();
-           
+
             commitment_scheme.commit(proof.commitments[0], &sizes[0], verifier_channel);
             commitment_scheme.commit(proof.commitments[1], &sizes[1], verifier_channel);
             verify(&[&component], verifier_channel, commitment_scheme, proof).unwrap();

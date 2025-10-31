@@ -35,7 +35,7 @@ pub unsafe fn ifft(values: &mut VulkanColumn, twiddle_dbl: &[u32], log_size: u32
         let num = twiddles_size >> (layer + 1);
         offset += num as u32;
     }
-    let twiddle_buffer = context.buffer_in_out(&twiddle_buffer);
+    let twiddle_buffer = context.buffer_in(&twiddle_buffer);
 
     for log_n in 0..log_size {
         let push_constants = shaders::ifft::PushConstants {

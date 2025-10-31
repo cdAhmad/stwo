@@ -13,7 +13,7 @@ impl AccumulationOps for VulkanBackend {
         let context = Self::gpu_context();
 
         let buffer = context.buffer_in_out(&column.to_vec_u32());
-        let other_buffer = context.buffer_in_out(&other.to_vec_u32());
+        let other_buffer = context.buffer_in(&other.to_vec_u32());
 
         let pipeline = context.pipeline(PIPELINE_ACCUMULATE);
         let descriptor_set = context.descriptor_set(

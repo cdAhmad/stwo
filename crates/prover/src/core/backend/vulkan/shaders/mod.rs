@@ -7,4 +7,5 @@ pub mod ifft;
 pub mod fft;
 pub mod normalize;
 pub mod fri_fold_line;
+pub mod blake2s_commit_layer;
 

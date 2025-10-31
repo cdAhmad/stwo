@@ -10,11 +10,11 @@ uvec4 add_mod4(uvec4 a, uvec4 b) {
     return min(c, c - P_VEC);
 }
 
-layout(std430, binding = 0) restrict writeonly buffer ColumnBlock {
+layout(std430, binding = 0)  buffer ColumnBlock {
     uvec4 data[];
 } column;
 
-layout(std430, binding = 1) restrict readonly buffer OtherBlock {
+layout(std430, binding = 1) readonly buffer OtherBlock {
     uvec4 data[];
 } other;
 

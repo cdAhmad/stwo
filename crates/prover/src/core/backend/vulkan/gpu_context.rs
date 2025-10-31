@@ -1,34 +1,34 @@
 use std::{ collections::HashMap, sync::{ Arc, OnceLock } };
 
 use vulkano::{
+    Validated,
+    VulkanError,
     buffer::{ Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer },
     command_buffer::{
-        allocator::StandardCommandBufferAllocator,
         AutoCommandBufferBuilder,
         CommandBufferUsage,
         PrimaryAutoCommandBuffer,
         PrimaryCommandBufferAbstract,
+        allocator::StandardCommandBufferAllocator,
     },
     descriptor_set::{
-        allocator::StandardDescriptorSetAllocator,
         DescriptorSet,
         WriteDescriptorSet,
+        allocator::StandardDescriptorSetAllocator,
     },
-    device::{ DeviceFeatures },
+    device::DeviceFeatures,
     memory::allocator::{ AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator },
     pipeline::{
-        compute::ComputePipelineCreateInfo,
-        layout::PipelineDescriptorSetLayoutCreateInfo,
         ComputePipeline,
         Pipeline,
         PipelineBindPoint,
         PipelineLayout,
         PipelineShaderStageCreateInfo,
+        compute::ComputePipelineCreateInfo,
+        layout::PipelineDescriptorSetLayoutCreateInfo,
     },
     shader::ShaderModule,
     sync::GpuFuture,
-    Validated,
-    VulkanError,
 };
 use vulkano_util::context::VulkanoContext;
 
@@ -42,6 +42,7 @@ pub const PIPELINE_FFT: &str = "fft";
 pub const PIPELINE_NORMALIZE: &str = "normalize";
 pub const PIPELINE_FRI_FOLD_LINE: &str = "fri_fold_line";
 pub const PIPELINE_FRI_FOLD_CIRCLE_INTO_LINE: &str = "fri_fold_circle_into_line";
+pub const PIPELINE_BLAKE2S_COMMIT_LAYER: &str = "blake2s_commit_layer";
 pub struct GpuContext {
     device: Arc<vulkano::device::Device>,
     queue: Arc<vulkano::device::Queue>,
@@ -59,6 +60,9 @@ impl GpuContext {
         let vulkano_context = VulkanoContext::new(vulkano_util::context::VulkanoConfig {
             device_features: DeviceFeatures {
                 shader_int64: true,
+                shader_int8: true,
+                uniform_and_storage_buffer8_bit_access: true,
+                scalar_block_layout:true,
                 ..Default::default()
             },
             ..Default::default()
@@ -115,6 +119,10 @@ impl GpuContext {
         pipelines.insert(
             PIPELINE_FRI_FOLD_CIRCLE_INTO_LINE,
             Self::create_pipeline(&device, shaders::fri_fold_circle_into_line::load(device.clone()))
+        );
+        pipelines.insert(
+            PIPELINE_BLAKE2S_COMMIT_LAYER,
+            Self::create_pipeline(&device, shaders::blake2s_commit_layer::load(device.clone()))
         );
 
         let a = Self {
@@ -173,28 +181,63 @@ impl GpuContext {
         self.pipelines.get(name).cloned().expect("Failed to get pipeline").clone()
     }
 
-    pub fn buffer_in_out(self: &Arc<Self>, data: &[u32]) -> Subbuffer<[u32]> {
+    pub fn buffer_in_out<T>(self: &Arc<Self>, data: &[T]) -> Subbuffer<[T]>
+        where T: BufferContents + Copy
+    {
         Buffer::from_iter(
             self.memory_allocator(),
             BufferCreateInfo {
-                usage: BufferUsage::STORAGE_BUFFER |
-                BufferUsage::TRANSFER_SRC |
-                BufferUsage::TRANSFER_DST,
+                usage: BufferUsage::STORAGE_BUFFER,
                 ..Default::default()
             },
             AllocationCreateInfo {
-                memory_type_filter: MemoryTypeFilter::PREFER_HOST |
-                MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE |
+                MemoryTypeFilter::HOST_RANDOM_ACCESS,
                 ..Default::default()
             },
             data.iter().copied()
         ).expect("Failed to create buffer")
     }
 
-    pub fn descriptor_set(
+    pub fn buffer_in<T>(self: &Arc<Self>, data: &[T]) -> Subbuffer<[T]>
+        where T: BufferContents + Copy
+    {
+        Buffer::from_iter(
+            self.memory_allocator(),
+            BufferCreateInfo {
+                usage: BufferUsage::STORAGE_BUFFER,
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE |
+                MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                ..Default::default()
+            },
+            data.iter().copied()
+        ).expect("Failed to create buffer")
+    }
+    pub fn buffer_out<T>(self: &Arc<Self>, size: u64) -> Subbuffer<[T]>
+        where T: BufferContents + Copy + Default
+    {
+        Buffer::new_unsized(
+            self.memory_allocator(),
+            BufferCreateInfo {
+                usage: BufferUsage::STORAGE_BUFFER,
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE |
+                MemoryTypeFilter::HOST_RANDOM_ACCESS,
+                ..Default::default()
+            },
+            (size as u64) * (std::mem::size_of::<T>() as u64)
+        ).expect("Failed to create buffer")
+    }
+
+    pub fn descriptor_set<T: Sized>(
         self: &Arc<Self>,
         pipeline: &Arc<ComputePipeline>,
-        buffers: &[Subbuffer<[u32]>]
+        buffers: &[Subbuffer<[T]>]
     ) -> Arc<DescriptorSet> {
         DescriptorSet::new(
             self.descriptor_allocator(),
@@ -208,6 +251,19 @@ impl GpuContext {
             []
         ).expect("Failed to create descriptor set")
     }
+    pub fn descriptor_set_writes(
+        self: &Arc<Self>,
+        pipeline: &Arc<ComputePipeline>,
+        descriptor_writes: &[WriteDescriptorSet]
+    ) -> Arc<DescriptorSet> {
+        DescriptorSet::new(
+            self.descriptor_allocator(),
+            pipeline.layout().set_layouts()[0].clone(),
+            descriptor_writes.iter().cloned(),
+            []
+        ).expect("Failed to create descriptor set")
+    }
+
     pub fn group_counts(self: &Arc<Self>, count: usize) -> [u32; 3] {
         let group_count = (count + DISPATCH_SIZE - 1) / DISPATCH_SIZE;
         [group_count as u32, 1, 1]

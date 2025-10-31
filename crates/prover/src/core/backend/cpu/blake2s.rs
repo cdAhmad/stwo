@@ -14,10 +14,12 @@ impl MerkleOps<Blake2sMerkleHasher> for CpuBackend {
     ) -> Vec<Blake2sHash> {
         (0..(1 << log_size))
             .map(|i| {
-                Blake2sMerkleHasher::hash_node(
+              let a=  Blake2sMerkleHasher::hash_node(
                     prev_layer.map(|prev_layer| (prev_layer[2 * i], prev_layer[2 * i + 1])),
                     &columns.iter().map(|column| column[i]).collect_vec(),
-                )
+                );
+                println!("CPU hash_node {} : {:?}", i, a);
+                a
             })
             .collect()
     }

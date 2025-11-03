@@ -42,7 +42,7 @@ pub const PIPELINE_FFT: &str = "fft";
 pub const PIPELINE_NORMALIZE: &str = "normalize";
 pub const PIPELINE_FRI_FOLD_LINE: &str = "fri_fold_line";
 pub const PIPELINE_FRI_FOLD_CIRCLE_INTO_LINE: &str = "fri_fold_circle_into_line";
-pub const PIPELINE_BLAKE2S_COMMIT_LAYER: &str = "blake2s_commit_layer";
+pub const PIPELINE_BLAKE2_S_COMMIT_LAYER: &str = "blake2s_commit_layer";
 pub struct GpuContext {
     device: Arc<vulkano::device::Device>,
     queue: Arc<vulkano::device::Queue>,
@@ -62,7 +62,7 @@ impl GpuContext {
                 shader_int64: true,
                 shader_int8: true,
                 uniform_and_storage_buffer8_bit_access: true,
-                scalar_block_layout:true,
+                scalar_block_layout: true,
                 ..Default::default()
             },
             ..Default::default()
@@ -121,7 +121,7 @@ impl GpuContext {
             Self::create_pipeline(&device, shaders::fri_fold_circle_into_line::load(device.clone()))
         );
         pipelines.insert(
-            PIPELINE_BLAKE2S_COMMIT_LAYER,
+            PIPELINE_BLAKE2_S_COMMIT_LAYER,
             Self::create_pipeline(&device, shaders::blake2s_commit_layer::load(device.clone()))
         );
 
@@ -200,21 +200,43 @@ impl GpuContext {
     }
 
     pub fn buffer_in<T>(self: &Arc<Self>, data: &[T]) -> Subbuffer<[T]>
-        where T: BufferContents + Copy
+        where T: BufferContents + Copy + Default
     {
-        Buffer::from_iter(
-            self.memory_allocator(),
-            BufferCreateInfo {
-                usage: BufferUsage::STORAGE_BUFFER,
-                ..Default::default()
-            },
-            AllocationCreateInfo {
-                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE |
-                MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-                ..Default::default()
-            },
-            data.iter().copied()
-        ).expect("Failed to create buffer")
+        let buffer = if data.is_empty() {
+            // 显式处理空数据：创建一个零长度的 buffer
+            // Vulkano 允许 empty iterator
+            // 创建一个大小为 1 的缓冲区，但我们知道它是“空”的
+            // 这样避免 Vulkan 零大小分配问题
+            let placeholder = vec![T::default()];
+            Buffer::from_iter(
+                self.memory_allocator(),
+                BufferCreateInfo {
+                    usage: BufferUsage::STORAGE_BUFFER,
+                    ..Default::default()
+                },
+                AllocationCreateInfo {
+                    memory_type_filter: MemoryTypeFilter::PREFER_DEVICE |
+                    MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                    ..Default::default()
+                },
+                placeholder.into_iter()
+            )
+        } else {
+            Buffer::from_iter(
+                self.memory_allocator(),
+                BufferCreateInfo {
+                    usage: BufferUsage::STORAGE_BUFFER,
+                    ..Default::default()
+                },
+                AllocationCreateInfo {
+                    memory_type_filter: MemoryTypeFilter::PREFER_DEVICE |
+                    MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                    ..Default::default()
+                },
+                data.iter().copied()
+            )
+        };
+        buffer.expect("Failed to create buffer")
     }
     pub fn buffer_out<T>(self: &Arc<Self>, size: u64) -> Subbuffer<[T]>
         where T: BufferContents + Copy + Default

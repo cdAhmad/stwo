@@ -4,14 +4,15 @@ use crate::core::{
     backend::{
         Col,
         ColumnOps,
+        CpuBackend,
         vulkan::{
             VulkanBackend,
-            gpu_context::PIPELINE_BLAKE2S_COMMIT_LAYER,
+            gpu_context::{ PIPELINE_BLAKE2_S_COMMIT_LAYER },
             shaders::blake2s_commit_layer,
         },
     },
-    fields::m31::{ BaseField },
-    vcs::{ blake2_hash::Blake2sHash, blake2_merkle::Blake2sMerkleHasher, ops::{ MerkleOps } },
+    fields::m31::BaseField,
+    vcs::{ blake2_hash::Blake2sHash, blake2_merkle::Blake2sMerkleHasher, ops::MerkleOps },
 };
 
 impl ColumnOps<Blake2sHash> for VulkanBackend {
@@ -27,9 +28,24 @@ impl MerkleOps<Blake2sMerkleHasher> for VulkanBackend {
         prev_layer: Option<&Vec<Blake2sHash>>,
         columns: &[&Col<Self, BaseField>]
     ) -> Vec<Blake2sHash> {
+        println!(
+            "Vulkan commit_on_layer log_size {} {}  columns len {}",
+            log_size,
+            prev_layer.is_none(),
+            columns.len()
+        );
+        if log_size < 4 {
+            return <CpuBackend as MerkleOps<Blake2sMerkleHasher>>::commit_on_layer(
+                log_size,
+                prev_layer,
+                &columns
+                    .iter()
+                    .map(|f| &f.data)
+                    .collect::<Vec<_>>()
+            );
+        }
         let layer_size = 1usize << log_size;
         let num_columns = columns.len();
-
         // === 1. prev_layer: Vec<u8> ===
         let prev_bytes: Vec<u8> = if let Some(prev) = prev_layer {
             prev.iter()
@@ -48,20 +64,18 @@ impl MerkleOps<Blake2sMerkleHasher> for VulkanBackend {
         }
         let context = VulkanBackend::gpu_context();
 
-        let prev_buffer = context.buffer_in(&prev_bytes);
-
         let col_buffer = context.buffer_in(&col_u32s);
 
         let output_buffer = context.buffer_out::<u8>((layer_size as u64) * 32);
-
-        let pipeline = context.pipeline(PIPELINE_BLAKE2S_COMMIT_LAYER);
+        let prev_buffer = context.buffer_in(&prev_bytes);
+        let pipeline = context.pipeline(PIPELINE_BLAKE2_S_COMMIT_LAYER);
 
         let descriptor_set = context.descriptor_set_writes(
             &pipeline,
             &[
-                WriteDescriptorSet::buffer(0, prev_buffer.clone()),
-                WriteDescriptorSet::buffer(1, col_buffer.clone()),
-                WriteDescriptorSet::buffer(2, output_buffer.clone()),
+                WriteDescriptorSet::buffer(0, col_buffer.clone()),
+                WriteDescriptorSet::buffer(1, output_buffer.clone()),
+                WriteDescriptorSet::buffer(2, prev_buffer.clone()),
             ]
         );
         let group_counts = context.group_counts(layer_size);
@@ -73,7 +87,6 @@ impl MerkleOps<Blake2sMerkleHasher> for VulkanBackend {
             blake2s_commit_layer::Params {
                 log_size,
                 num_columns: num_columns as u32,
-                has_prev_layer: 1,
             }
         );
         context.execution_wait(command_buffer);

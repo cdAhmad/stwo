@@ -125,14 +125,14 @@ void blake2s_final(inout blake2s_state S, out uint8_t hash_out[32]) {
 
 layout(local_size_x = 256) in;
 
-layout(std430, binding = 0) readonly buffer PrevHashes { uint8_t data[]; } prev_hashes;
-layout(std430, binding = 1) readonly buffer Columns    { uint data[];    } columns;
-layout(std430, binding = 2) writeonly buffer OutputHashes { uint8_t data[]; } out_hashes;
+
+layout(std430, binding = 0) readonly buffer Columns    { uint data[];    } columns;
+layout(std430, binding = 1) writeonly buffer OutputHashes { uint8_t data[]; } out_hashes;
+layout(std430, binding = 2) readonly buffer PrevHashes { uint8_t data[]; } prev_hashes;
 
 layout(push_constant) uniform Params {
     uint log_size;
     uint num_columns;
-    uint has_prev_layer;
 } params;
 
 void main() {
@@ -144,7 +144,6 @@ void main() {
     blake2s_init(state);
 
     // (1) 处理子哈希（64 字节 = 16 uints）
-    if (params.has_prev_layer != 0u) {
         uint child_block[16];
         uint offset = (2u * i) * 32u; // 2 children × 32 bytes each
 
@@ -157,7 +156,6 @@ void main() {
                 ((prev_hashes.data[offset + j*4 + 3] & 0xFFu) << 24u);
         }
         blake2s_set_block(state, child_block);
-    }
 
     // (2) 处理列数据（每个 uint 对齐写入）
     for (uint col = 0; col < params.num_columns; ++col) {

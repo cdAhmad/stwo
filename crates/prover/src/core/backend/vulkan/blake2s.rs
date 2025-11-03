@@ -131,10 +131,6 @@ mod test {
             .chunks(1 << layer_size)
             .map(|chunk| chunk.to_vec())
             .collect_vec();
-        println!("CPU commit_on_layer...  {:?}", prev_layer);
-        println!("CPU commit_on_layer...  {:?}", c2.iter().collect_vec().as_slice());
-        println!("Vulkan only left child hash 320b5ea99e653bc2b593db4130d10a4efd3a0b4cc2e1a6672b678d71dfbd33ad");
-        println!("Vulkan only  child hash 63df7eb227fb4e7bc7ff187ebf241e5114ea72b65b8f7bb26c1c41cce2aab1c8");
         let cpu_result = <CpuBackend as MerkleOps<Blake2sMerkleHasher>>::commit_on_layer(
             layer_size,
             std::option::Option::Some(&prev_layer),
@@ -162,11 +158,11 @@ mod test {
     fn blake2s_hash2() {
         let layer_size = 1;
         let prev_layer = (0..1 << (layer_size + 1))
-            .map(|i| Blake2sHash([i as u8; 32]))
+            .map(|_| Blake2sHash([0 as u8; 32]))
             .collect_vec();
         println!("prev layer {:?}", prev_layer);
-        let mut b = Blake2s256::new();
-        b.update(prev_layer[0].as_ref());
+        let b = Blake2s256::new();
+        // b.update(prev_layer[0].as_ref());
         // b.update(prev_layer[1].as_ref());
 
         // b.update(&0u32.to_le_bytes());

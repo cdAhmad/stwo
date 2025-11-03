@@ -3,25 +3,17 @@ vulkano_shaders::shader! {
     src: r#"
 #version 450
 
-// 启用 8bit 类型扩展（用于 buffer 中的 uint8_t）
 #extension GL_EXT_shader_8bit_storage : require
 #extension GL_EXT_shader_explicit_arithmetic_types : require
 
-// ===========================================================
-//                     BLAKE2s 常量定义
-// ===========================================================
+const uint BLOCK_SIZE_WORDS = 16u; // 64 bytes = 16 uints
+const uint HASH_SIZE = 32u;
 
-const uint BLOCK_SIZE = 64u;     // 每个数据块 64 字节
-const uint HASH_SIZE  = 32u;     // 输出哈希长度 32 字节
-const uint WORDS_PER_BLOCK = 16u;
-
-// 初始化向量 (IV)
 const uint IV[8] = {
     0x6A09E667u, 0xBB67AE85u, 0x3C6EF372u, 0xA54FF53Au,
     0x510E527Fu, 0x9B05688Cu, 0x1F83D9ABu, 0x5BE0CD19u
 };
 
-// 每轮的消息混排表（SIGMA）
 const uint SIGMA[10][16] = {
     { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,15 },
     {14,10, 4, 8, 9,15,13, 6, 1,12, 0, 2,11, 7, 5, 3 },
@@ -35,66 +27,34 @@ const uint SIGMA[10][16] = {
     {10, 2, 8, 4, 7, 6, 1, 5,15,11, 9,14, 3,12,13, 0 }
 };
 
-// ===========================================================
-//                     BLAKE2s 状态结构
-// ===========================================================
-
 struct blake2s_state {
-    uint h[8];        // 哈希寄存器
-    uint t[2];        // 计数器 (64-bit)
-    uint f[2];        // 标志位 (f[0] = 0xFFFFFFFF 表示最后一个块)
-    uint buf[64];     // 缓冲区 (每元素代表一个字节)
-    uint buflen;      // 当前缓冲区已使用长度
-    uint outlen;      // 输出哈希长度 (字节)
+    uint h[8];
+    uint t[2];          // total bytes (not words!)
+    uint buf[16];       // 16 words = 64 bytes
+    uint wordlen;       // number of uints in buf (0..16)
 };
 
-// ===========================================================
-//                     辅助函数
-// ===========================================================
-
-// 循环右移
 uint rotr(uint x, uint n) {
     return (x >> n) | (x << (32u - n));
 }
 
-// G 函数（核心混合操作）
 void G(inout uint a, inout uint b, inout uint c, inout uint d, uint m_i, uint m_j) {
     uint x = a, y = b, z = c, w = d;
-
-    x = x + y + m_i;   w = rotr(w ^ x, 16u);
-    z = z + w;         y = rotr(y ^ z, 12u);
-    x = x + y + m_j;   w = rotr(w ^ x, 8u);
-    z = z + w;         y = rotr(y ^ z, 7u);
-
+    x += y + m_i;   w = rotr(w ^ x, 16u);
+    z += w;         y = rotr(y ^ z, 12u);
+    x += y + m_j;   w = rotr(w ^ x, 8u);
+    z += w;         y = rotr(y ^ z, 7u);
     a = x; b = y; c = z; d = w;
 }
 
-// ===========================================================
-//                     BLAKE2s 核心函数
-// ===========================================================
-
-// 初始化状态
-void blake2s_init(out blake2s_state S, uint outlen) {
-    for (int i = 0; i < 8; ++i)
-        S.h[i] = IV[i];
-    S.h[0] ^= 0x01010000u ^ (outlen << 8u);
+void blake2s_init(out blake2s_state S) {
+    for (int i = 0; i < 8; ++i) S.h[i] = IV[i];
+    S.h[0] ^= 0x01010000u ^ 32u; // outlen=32
     S.t[0] = 0u; S.t[1] = 0u;
-    S.f[0] = 0u; S.f[1] = 0u;
-    S.buflen = 0u; S.outlen = outlen;
+    S.wordlen = 0u;
 }
 
-// 压缩函数 (核心BLAKE2s轮函数)
-void blake2s_compress(inout blake2s_state S, uint block[64], bool is_last) {
-    uint m[16];
-    // 将64字节块转为16个32位小端字
-    for (int i = 0; i < 16; ++i) {
-        m[i] = (block[i*4+0] & 0xFFu)
-             | ((block[i*4+1] & 0xFFu) << 8u)
-             | ((block[i*4+2] & 0xFFu) << 16u)
-             | ((block[i*4+3] & 0xFFu) << 24u);
-    }
-
-    // 初始化工作向量
+void blake2s_compress(inout blake2s_state S, bool is_last) {
     uint v[16];
     for (int i = 0; i < 8; ++i) {
         v[i] = S.h[i];
@@ -105,73 +65,74 @@ void blake2s_compress(inout blake2s_state S, uint block[64], bool is_last) {
     v[13] ^= S.t[1];
     if (is_last) v[14] ^= 0xFFFFFFFFu;
 
-    // 10 轮混合
     for (int r = 0; r < 10; ++r) {
-        // 列混合
-        G(v[0],v[4],v[8],v[12],m[SIGMA[r][0]],m[SIGMA[r][1]]);
-        G(v[1],v[5],v[9],v[13],m[SIGMA[r][2]],m[SIGMA[r][3]]);
-        G(v[2],v[6],v[10],v[14],m[SIGMA[r][4]],m[SIGMA[r][5]]);
-        G(v[3],v[7],v[11],v[15],m[SIGMA[r][6]],m[SIGMA[r][7]]);
-        // 对角混合
-        G(v[0],v[5],v[10],v[15],m[SIGMA[r][8]],m[SIGMA[r][9]]);
-        G(v[1],v[6],v[11],v[12],m[SIGMA[r][10]],m[SIGMA[r][11]]);
-        G(v[2],v[7],v[8],v[13],m[SIGMA[r][12]],m[SIGMA[r][13]]);
-        G(v[3],v[4],v[9],v[14],m[SIGMA[r][14]],m[SIGMA[r][15]]);
+        G(v[0],v[4],v[8],v[12],S.buf[SIGMA[r][0]],S.buf[SIGMA[r][1]]);
+        G(v[1],v[5],v[9],v[13],S.buf[SIGMA[r][2]],S.buf[SIGMA[r][3]]);
+        G(v[2],v[6],v[10],v[14],S.buf[SIGMA[r][4]],S.buf[SIGMA[r][5]]);
+        G(v[3],v[7],v[11],v[15],S.buf[SIGMA[r][6]],S.buf[SIGMA[r][7]]);
+        G(v[0],v[5],v[10],v[15],S.buf[SIGMA[r][8]],S.buf[SIGMA[r][9]]);
+        G(v[1],v[6],v[11],v[12],S.buf[SIGMA[r][10]],S.buf[SIGMA[r][11]]);
+        G(v[2],v[7],v[8],v[13],S.buf[SIGMA[r][12]],S.buf[SIGMA[r][13]]);
+        G(v[3],v[4],v[9],v[14],S.buf[SIGMA[r][14]],S.buf[SIGMA[r][15]]);
     }
 
-    // 更新状态
     for (int i = 0; i < 8; ++i)
         S.h[i] ^= v[i] ^ v[i+8];
 }
 
-// 写入单字节（uint 表示）
-void blake2s_update_byte(inout blake2s_state S, uint byte_val) {
-    S.buf[S.buflen] = byte_val & 0xFFu;
-    S.buflen++;
+// 直接追加一个 uint（小端，4 字节）
+void blake2s_update_u32(inout blake2s_state S, uint val) {
+    S.buf[S.wordlen] = val;
+    S.wordlen++;
 
-    // 缓冲区满则压缩
-    if (S.buflen == BLOCK_SIZE) {
-        uint old_t0 = S.t[0];
-        S.t[0] += BLOCK_SIZE;
-        if (S.t[0] < old_t0) S.t[1]++;
-        blake2s_compress(S, S.buf, false);
-        S.buflen = 0u;
+    if (S.wordlen == BLOCK_SIZE_WORDS) {
+        S.t[0] += 64u; // 16 words = 64 bytes
+        blake2s_compress(S, false);
+        S.wordlen = 0u;
     }
 }
 
-// 计算最终哈希
-void blake2s_final(inout blake2s_state S, out uint hash_out[32]) {
-    uint old_t0 = S.t[0];
-    S.t[0] += S.buflen;
-    if (S.t[0] < old_t0) S.t[1]++;
+// 批量设置整个块（用于子哈希）
+void blake2s_set_block(inout blake2s_state S, uint block[16]) {
+    // 假设当前 buf 为空
+    for (int i = 0; i < 16; ++i) S.buf[i] = block[i];
+    S.wordlen = 16u;
+    S.t[0] = 64u; // 子哈希共 64 字节
+    blake2s_compress(S, false);
+    S.wordlen = 0u;
+}
 
-    // 填充零字节
-    for (uint i = S.buflen; i < BLOCK_SIZE; ++i)
+void blake2s_final(inout blake2s_state S, out uint8_t hash_out[32]) {
+    // Add final bytes count
+    S.t[0] += S.wordlen * 4u;
+
+    // Pad with zeros to full block
+    for (uint i = S.wordlen; i < 16u; ++i) {
         S.buf[i] = 0u;
+    }
 
-    blake2s_compress(S, S.buf, true);
+    blake2s_compress(S, true);
 
-    // 输出32字节哈希（小端序）
-    for (uint i = 0; i < HASH_SIZE; ++i)
-        hash_out[i] = (S.h[i / 4] >> (8u * (i % 4))) & 0xFFu;
+    // Output as little-endian bytes
+    for (uint i = 0; i < 32u; ++i) {
+        hash_out[i] = uint8_t((S.h[i/4] >> (8u * (i%4))) & 0xFFu);
+    }
 }
 
 // ===========================================================
-//                     主计算入口 (Vulkan Compute)
+//                     主计算入口
 // ===========================================================
 
 layout(local_size_x = 256) in;
 
-// 输入绑定
-layout(std430,binding = 0) readonly buffer PrevHashes { uint8_t data[]; } prev_hashes;  // 上层节点哈希（可为空）
-layout(std430,binding = 1) readonly buffer Columns    { uint data[];    } columns;      // 每列的数值
-layout(std430,binding = 2) writeonly buffer OutputHashes { uint8_t data[]; } out_hashes; // 输出哈希
+layout(std430, binding = 0) readonly buffer PrevHashes { uint8_t data[]; } prev_hashes;
+layout(std430, binding = 1) readonly buffer Columns    { uint data[];    } columns;
+layout(std430, binding = 2) writeonly buffer OutputHashes { uint8_t data[]; } out_hashes;
 
-// Push 常量参数
 layout(push_constant) uniform Params {
-    uint log_size;        // 层大小 = 2^log_size
-    uint num_columns;     // 列数
-    uint has_prev_layer;  // 是否有上一层哈希
+    uint log_size;
+    uint num_columns;
+    uint has_prev_layer;
 } params;
 
 void main() {
@@ -180,35 +141,38 @@ void main() {
     if (i >= layer_size) return;
 
     blake2s_state state;
-    blake2s_init(state, 32u);
+    blake2s_init(state);
 
-    // === (1) 读取子节点哈希（若有上一层） ===
+    // (1) 处理子哈希（64 字节 = 16 uints）
     if (params.has_prev_layer != 0u) {
-        uint hash_offset = (2u * i) * 64u;
-        for (uint j = 0; j < 64u; ++j)
-            blake2s_update_byte(state, prev_hashes.data[hash_offset + j]);
+        uint child_block[16];
+        uint offset = (2u * i) * 32u; // 2 children × 32 bytes each
+
+        // 将 64 字节转换为 16 个小端 uint
+        for (int j = 0; j < 16; ++j) {
+            child_block[j] =
+                (prev_hashes.data[offset + j*4 + 0] & 0xFFu) |
+                ((prev_hashes.data[offset + j*4 + 1] & 0xFFu) << 8u) |
+                ((prev_hashes.data[offset + j*4 + 2] & 0xFFu) << 16u) |
+                ((prev_hashes.data[offset + j*4 + 3] & 0xFFu) << 24u);
+        }
+        blake2s_set_block(state, child_block);
     }
 
-    // === (2) 加入列数据（每个uint拆为4字节） ===
+    // (2) 处理列数据（每个 uint 对齐写入）
     for (uint col = 0; col < params.num_columns; ++col) {
         uint val = columns.data[col * layer_size + i];
-        // blake2s_update_byte(state, val & 0xFFu);
-        // blake2s_update_byte(state, (val >> 8u) & 0xFFu);
-        // blake2s_update_byte(state, (val >> 16u) & 0xFFu);
-        // blake2s_update_byte(state, (val >> 24u) & 0xFFu);
+        blake2s_update_u32(state, val);
     }
 
-    // === (3) 计算最终哈希 ===
-    uint hash[32];
+    // (3) Finalize and output
+    uint8_t hash[32];
     blake2s_final(state, hash);
 
-    // === (4) 写出结果 ===
     uint out_off = i * 32u;
-    for (uint j = 0; j < 32u; ++j)
-        out_hashes.data[out_off + j] = uint8_t(hash[j]);
-        // out_hashes.data[out_off + j] = prev_hashes.data[out_off + j]; // ✅ 正确访问
+    for (uint j = 0; j < 32u; ++j) {
+        out_hashes.data[out_off + j] = hash[j];
+    }
 }
-
-
     "#
 }

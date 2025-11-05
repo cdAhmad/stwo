@@ -28,12 +28,12 @@ impl MerkleOps<Blake2sMerkleHasher> for VulkanBackend {
         prev_layer: Option<&Vec<Blake2sHash>>,
         columns: &[&Col<Self, BaseField>]
     ) -> Vec<Blake2sHash> {
-        println!(
-            "Vulkan commit_on_layer log_size {} {}  columns len {}",
-            log_size,
-            prev_layer.is_none(),
-            columns.len()
-        );
+        // println!(
+        //     "Vulkan commit_on_layer log_size {} {}  columns len {}",
+        //     log_size,
+        //     prev_layer.is_none(),
+        //     columns.len()
+        // );
         if log_size < 4 {
             return <CpuBackend as MerkleOps<Blake2sMerkleHasher>>::commit_on_layer(
                 log_size,
